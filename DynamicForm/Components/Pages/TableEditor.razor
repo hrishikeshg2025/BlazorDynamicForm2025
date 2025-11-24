@@ -1,0 +1,229 @@
+﻿
+@using DynamicForm.Models
+@using DynamicForm.Services
+
+<div class="table-editor">
+    <div class="card">
+        <div class="card-header">
+            <h5>Table Editor: @Table?.Name</h5>
+        </div>
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label>Rows</label>
+                    <InputNumber @bind-Value="Table.Rows" class="form-control" min="1" max="50" />
+                </div>
+                <div class="col-md-3">
+                    <label>Columns</label>
+                    <InputNumber @bind-Value="Table.Columns" class="form-control" min="1" max="20" />
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-4">
+                        <InputCheckbox @bind-Value="Table.ShowHeaders" class="form-check-input" />
+                        <label class="form-check-label">Show Headers</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <button @onclick="ResizeTable" class="btn btn-primary mt-4">Resize Table</button>
+                </div>
+            </div>
+
+            @if (Table.ShowHeaders)
+            {
+                <div class="table-header-editor mb-3">
+                    <h6>Headers</h6>
+                    <div class="row">
+                        @for (int col = 0; col < Table.Headers.Count; col++)
+                        {
+                            <div class="col-md-3 mb-2">
+                                <label>Header @(col + 1)</label>
+                                <InputText @bind-Value="Table.Headers[col].Text" class="form-control" />
+                                <InputNumber @bind-Value="Table.Headers[col].ColSpan" class="form-control mt-1" min="1" max="@(Table.Columns - col)" />
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div class="table-grid-editor">
+                <h6>Table Layout</h6>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-editor-grid">
+                        @if (Table.ShowHeaders)
+                        {
+                            <thead>
+                                <tr>
+                                    @for (int col = 0; col < Table.Headers.Count; col++)
+                                    {
+                                        <th colspan="@Table.Headers[col].ColSpan">
+                                            @Table.Headers[col].Text
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                        }
+                        <tbody>
+                            @for (int row = 0; row < Table.Rows; row++)
+                            {
+                                <tr>
+                                    @for (int col = 0; col < Table.Columns; col++)
+                                    {
+                                        var cell = TableLayoutService.GetCell(Table, row, col);
+                                        var field = GetFieldInCell(cell);
+
+                                        if (cell != null && cell.ColSpan > 0 && cell.RowSpan > 0)
+                                        {
+                                            <td colspan="@cell.ColSpan" rowspan="@cell.RowSpan"
+                                                class="table-cell @(IsCellMapped(cell) ? "cell-mapped" : "cell-empty")"
+                                                @onclick="@(() => OpenCellMappingModal(row, col))">
+                                                @if (IsCellMapped(cell))
+                                                {
+                                                    <div class="cell-content">
+                                                        <strong>@field?.Label</strong>
+                                                        <br />
+                                                        <small class="text-muted">@field?.Type</small>
+                                                        <button @onclick="@((e) => { ClearCellMapping(row, col); })"
+                                                                class="btn btn-sm btn-danger float-right">
+                                                            ×
+                                                        </button>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="cell-placeholder">
+                                                        Click to map field
+                                                    </div>
+                                                }
+                                            </td>
+                                        }
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cell Mapping Modal -->
+    @if (showCellMappingModal)
+    {
+        <div class="modal show d-block" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Map Field to Cell</h5>
+                        <button type="button" class="close" @onclick="CloseCellMappingModal">
+                            <span>&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>Select Field</label>
+                            <select @bind="selectedFieldId" class="form-control">
+                                <option value="">-- Select Field --</option>
+                                @foreach (var field in AvailableFields)
+                                {
+                                    <option value="@field.Id">@field.Label (@field.Type)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label>Column Span</label>
+                                <InputNumber @bind-Value="colSpan" class="form-control" min="1" max="@(Table.Columns - currentColumn)" />
+                            </div>
+                            <div class="col-md-6">
+                                <label>Row Span</label>
+                                <InputNumber @bind-Value="rowSpan" class="form-control" min="1" max="@(Table.Rows - currentRow)" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button @onclick="CloseCellMappingModal" class="btn btn-secondary">Cancel</button>
+                        <button @onclick="SaveCellMapping" class="btn btn-primary">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public FormTable Table { get; set; }
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+    [Parameter] public EventCallback OnTableChanged { get; set; }
+
+    [Inject] private ITableLayoutService TableLayoutService { get; set; }
+
+    private bool showCellMappingModal = false;
+    private int currentRow;
+    private int currentColumn;
+    private string selectedFieldId;
+    private int colSpan = 1;
+    private int rowSpan = 1;
+
+    private List<FormField> AvailableFields => FormDefinition.Fields;
+
+    private FormField GetFieldInCell(TableCell cell)
+    {
+        if (cell == null || string.IsNullOrEmpty(cell.FieldId)) return null;
+        return FormDefinition.Fields.FirstOrDefault(f => f.Id == cell.FieldId);
+    }
+
+    private bool IsCellMapped(TableCell cell)
+    {
+        return cell != null && !string.IsNullOrEmpty(cell.FieldId);
+    }
+
+    private void OpenCellMappingModal(int row, int column)
+    {
+        currentRow = row;
+        currentColumn = column;
+
+        var cell = TableLayoutService.GetCell(Table, row, column);
+        if (cell != null)
+        {
+            selectedFieldId = cell.FieldId;
+            colSpan = cell.ColSpan;
+            rowSpan = cell.RowSpan;
+        }
+
+        showCellMappingModal = true;
+        StateHasChanged();
+    }
+
+    private void CloseCellMappingModal()
+    {
+        showCellMappingModal = false;
+        StateHasChanged();
+    }
+
+    private async Task SaveCellMapping()
+    {
+        if (!string.IsNullOrEmpty(selectedFieldId))
+        {
+            TableLayoutService.MapFieldToCell(Table, selectedFieldId, currentRow, currentColumn, colSpan, rowSpan);
+        }
+        else
+        {
+            TableLayoutService.RemoveFieldFromCell(Table, currentRow, currentColumn);
+        }
+
+        CloseCellMappingModal();
+        await OnTableChanged.InvokeAsync();
+    }
+
+    private async Task ResizeTable()
+    {
+        TableLayoutService.ResizeTable(Table, Table.Rows, Table.Columns);
+        await OnTableChanged.InvokeAsync();
+    }
+
+    private void ClearCellMapping(int row, int column)
+    {
+        TableLayoutService.RemoveFieldFromCell(Table, row, column);
+        OnTableChanged.InvokeAsync();
+    }
+}

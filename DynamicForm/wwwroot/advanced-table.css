@@ -1,0 +1,191 @@
+﻿/* wwwroot/css/advanced-table.css */
+.advanced-table-editor {
+    margin-bottom: 2rem;
+}
+
+.table-configuration {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+}
+
+.table-editor-grid {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 0.875rem;
+}
+
+    .table-editor-grid td {
+        height: 80px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        vertical-align: top;
+        position: relative;
+    }
+
+.cell-content {
+    height: 100%;
+    padding: 0.25rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+}
+
+.cell-mapped {
+    background-color: #d4edda;
+    border: 2px solid #c3e6cb;
+}
+
+.cell-calculation {
+    background-color: #d1ecf1;
+    border: 2px solid #bee5eb;
+}
+
+.cell-nested {
+    background-color: #e2e3e5;
+    border: 2px solid #d6d8db;
+}
+
+.cell-empty {
+    background-color: #f8f9fa;
+    border: 2px dashed #dee2e6;
+}
+
+    .cell-empty:hover {
+        background-color: #e9ecef;
+    }
+
+.cell-actions {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.table-cell:hover .cell-actions {
+    opacity: 1;
+}
+
+.cell-field,
+.cell-text,
+.cell-calculation,
+.cell-nested-table {
+    position: relative;
+}
+
+.cell-placeholder {
+    color: #6c757d;
+    font-style: italic;
+    font-size: 0.75rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .table-editor-grid {
+        font-size: 0.75rem;
+    }
+
+        .table-editor-grid td {
+            height: 60px;
+        }
+
+    .cell-content {
+        padding: 0.125rem;
+    }
+
+    .table-configuration .row > div {
+        margin-bottom: 1rem;
+    }
+}
+
+/* Form Table Styles */
+.form-table-container {
+    max-height: 600px;
+    overflow: auto;
+    border: 1px solid #dee2e6;
+}
+
+.form-table {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+    .form-table th {
+        background-color: #f8f9fa;
+        font-weight: 600;
+        text-align: center;
+        vertical-align: middle;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .form-table td {
+        vertical-align: middle;
+        padding: 0.5rem;
+        min-height: 60px;
+    }
+
+.form-table-cell {
+    min-width: 120px;
+}
+
+.form-table-field-control {
+    width: 100%;
+}
+
+    .form-table-field-control .form-control {
+        width: 100%;
+        min-width: 0;
+    }
+
+/* Nested Table Styles */
+.nested-table {
+    margin: 0.5rem 0;
+    border: 1px solid #ccc;
+}
+
+    .nested-table .form-table {
+        font-size: 0.8rem;
+    }
+
+        .nested-table .form-table td {
+            padding: 0.25rem;
+            min-height: 40px;
+        }
+
+/* Scrollbar Styling */
+.form-table-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.form-table-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.form-table-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+    .form-table-container::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+
+/* Calculation Expression Styling */
+.cell-calculation strong {
+    color: #0c5460;
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+}
+
+/* Modal Enhancements */
+.modal-lg {
+    max-width: 800px;
+}
+
+.cell-type-content {
+    min-height: 200px;
+}

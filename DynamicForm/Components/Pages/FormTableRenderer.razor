@@ -1,0 +1,317 @@
+﻿@using DynamicForm.Models
+@using DynamicForm.Services
+@using System.Globalization
+@inject IAdvancedTableLayoutService TableLayoutService
+@inject IRuleEngineService RuleEngineService
+
+<div class="form-table-container">
+    <table class="table table-bordered form-table @Table?.CssClass">
+        @if (Table.ShowHeaders && Table.Headers?.Any() == true)
+        {
+            <thead>
+                <tr>
+                    @foreach (var header in Table.Headers)
+                    {
+                        <th colspan="@header.ColSpan" class="@header.CssClass" style="background-color: #f8f9fa;">
+                            @header.Text
+                        </th>
+                    }
+                </tr>
+            </thead>
+        }
+        <tbody>
+            @for (int row = 0; row < Table.Rows; row++)
+            {
+                <tr>
+                    @for (int col = 0; col < Table.Columns; col++)
+                    {
+                        var cell = TableLayoutService.GetCell(Table, row, col);
+                        var field = TableLayoutService.GetFieldInCell(Table, row, col, FormDefinition);
+
+                        if (cell != null && cell.ColSpan > 0 && cell.RowSpan > 0)
+                        {
+                            <td colspan="@cell.ColSpan" rowspan="@cell.RowSpan"
+                                class="form-table-cell @cell.CssClass @GetCellTypeClass(cell) @(field?.IsHidden == true ? "d-none" : "")">
+
+                                @if (field != null)
+                                {
+                                    @if (cell.CellType == CellType.Field)
+                                    {
+                                        <!-- FIELD INPUT: Show ONLY the input field, NO label -->
+                                        <div class="form-table-field-input">
+                                            @RenderFieldInput(field)
+                                        </div>
+                                    }
+                                    else if (cell.CellType == CellType.FieldLabel)
+                                    {
+                                        <!-- FIELD LABEL: Show ONLY the label text -->
+                                        <div class="form-table-field-label">
+                                            <span class="field-label-text">@GetCellLabel(cell, field)</span>
+                                        </div>
+                                    }
+                                }
+                                else if (cell.CellType == CellType.StaticText && !string.IsNullOrEmpty(cell.Text))
+                                {
+                                    <div class="form-table-static-text">
+                                        @cell.Text
+                                    </div>
+                                }
+                                else if (cell.CellType == CellType.Calculation && !string.IsNullOrEmpty(cell.Expression))
+                                {
+                                    <div class="form-table-calculation">
+                                        <div class="calculation-result">
+                                            @GetCalculationResult(cell)
+                                        </div>
+                                        <small class="text-muted">= @cell.Expression</small>
+                                    </div>
+                                }
+                                else if (cell.CellType == CellType.NestedTable && cell.NestedTable != null)
+                                {
+                                    <div class="form-table-nested">
+                                        <FormTableRenderer Table="cell.NestedTable"
+                                                           FormDefinition="FormDefinition"
+                                                           FormValues="FormValues"
+                                                           OnFieldValueChanged="OnFieldValueChanged" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="form-table-empty">&nbsp;</div>
+                                }
+                            </td>
+                        }
+                    }
+                </tr>
+            }
+        </tbody>
+        @if (Table.ShowFooter && Table.Footer?.Cells?.Any() == true)
+        {
+            <tfoot>
+                <tr>
+                    @foreach (var footerCell in Table.Footer.Cells)
+                    {
+                        <td colspan="@footerCell.ColSpan" style="background-color: #f8f9fa;">
+                            @footerCell.Text
+                        </td>
+                    }
+                </tr>
+            </tfoot>
+        }
+    </table>
+</div>
+
+@code {
+    [Parameter] public DynamicTable Table { get; set; }
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+    [Parameter] public Dictionary<string, object> FormValues { get; set; }
+    [Parameter] public EventCallback<FieldValueChangedEventArgs> OnFieldValueChanged { get; set; }
+
+    private string GetCellLabel(TableCell cell, FormField field)
+    {
+        return !string.IsNullOrEmpty(cell.Label) ? cell.Label : field?.Label ?? string.Empty;
+    }
+
+    private string GetCellTypeClass(TableCell cell)
+    {
+        return cell?.CellType.ToString().ToLower() ?? "empty";
+    }
+
+    private string GetCalculationResult(TableCell cell)
+    {
+        // This would need to integrate with your calculation engine
+        // For now, return a placeholder
+        return "Calculated Value";
+    }
+
+    private RenderFragment RenderFieldInput(FormField field) => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "field-input-container");
+
+        var fieldName = field.Name;
+        var currentValue = FormValues.ContainsKey(fieldName) ? FormValues[fieldName] : field.DefaultValue;
+
+        switch (field.Type)
+        {
+            case FieldType.Text:
+                builder.OpenElement(2, "input");
+                builder.AddAttribute(3, "type", "text");
+                builder.AddAttribute(4, "class", "form-control form-control-sm");
+                builder.AddAttribute(5, "value", currentValue);
+                builder.AddAttribute(6, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await HandleFieldChange(field, e.Value)));
+                builder.AddAttribute(7, "placeholder", GetInputPlaceholder(field));
+                builder.AddAttribute(8, "disabled", field.IsReadonly);
+                builder.CloseElement();
+                break;
+
+            case FieldType.Number:
+                // Use the same formatting logic as vertical layout
+                var formattedValue = GetFormattedNumberValue(field);
+
+                builder.OpenElement(9, "input");
+                builder.AddAttribute(10, "type", "number");
+                builder.AddAttribute(11, "class", "form-control form-control-sm");
+                builder.AddAttribute(12, "value", formattedValue);
+                builder.AddAttribute(13, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await HandleNumberFieldChange(field, e)));
+                builder.AddAttribute(14, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await ValidateNumberInput(field, e)));
+                builder.AddAttribute(15, "step", GetStepForField(field));
+                builder.AddAttribute(16, "min", field.MinValue);
+                builder.AddAttribute(17, "max", field.MaxValue);
+                builder.AddAttribute(18, "placeholder", GetInputPlaceholder(field));
+                builder.AddAttribute(19, "disabled", field.IsReadonly);
+                builder.CloseElement();
+                break;
+
+            case FieldType.Checkbox:
+                builder.OpenElement(20, "div");
+                builder.AddAttribute(21, "class", "form-check d-flex justify-content-center");
+
+                builder.OpenElement(22, "input");
+                builder.AddAttribute(23, "type", "checkbox");
+                builder.AddAttribute(24, "class", "form-check-input");
+                builder.AddAttribute(25, "checked", Convert.ToBoolean(currentValue));
+                builder.AddAttribute(26, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await HandleFieldChange(field, e.Value?.ToString() == "on")));
+                builder.AddAttribute(27, "disabled", field.IsReadonly);
+                builder.CloseElement();
+
+                builder.CloseElement();
+                break;
+
+            case FieldType.DropDown:
+            case FieldType.CascadingDropDown:
+                builder.OpenElement(28, "select");
+                builder.AddAttribute(29, "class", "form-control form-control-sm");
+                builder.AddAttribute(30, "value", currentValue);
+                builder.AddAttribute(31, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await HandleFieldChange(field, e.Value)));
+                builder.AddAttribute(32, "disabled", field.IsReadonly);
+
+                // Options
+                builder.OpenElement(33, "option");
+                builder.AddAttribute(34, "value", "");
+                builder.AddContent(35, "-- Select --");
+                builder.CloseElement();
+
+                foreach (var option in field.Data ?? new List<SelectListItem>())
+                {
+                    builder.OpenElement(36, "option");
+                    builder.AddAttribute(37, "value", option.Value);
+                    builder.AddContent(38, option.Text);
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+                break;
+
+            case FieldType.Date:
+                builder.OpenElement(39, "input");
+                builder.AddAttribute(40, "type", "date");
+                builder.AddAttribute(41, "class", "form-control form-control-sm");
+                builder.AddAttribute(42, "value", currentValue is DateTime date ? date.ToString("yyyy-MM-dd") : "");
+                builder.AddAttribute(43, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await HandleFieldChange(field, e.Value)));
+                builder.AddAttribute(44, "disabled", field.IsReadonly);
+                builder.CloseElement();
+                break;
+        }
+
+        builder.CloseElement();
+    };
+
+    private string GetInputPlaceholder(FormField field)
+    {
+        // For table inputs, use a shorter placeholder or none at all
+        return field.Type == FieldType.Text ? "Enter value" : "";
+    }
+
+    private string GetFormattedNumberValue(FormField field)
+    {
+        if (FormValues.TryGetValue(field.Name, out var value) && value != null)
+        {
+            if (decimal.TryParse(value.ToString(), out decimal decimalValue))
+            {
+                // Use the same formatting as vertical layout
+                return decimalValue.ToString($"F{field.DecimalPlaces ?? 2}", System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+        return string.Empty;
+    }
+
+    private async Task HandleNumberFieldChange(FormField field, ChangeEventArgs e)
+    {
+        var inputValue = e.Value?.ToString();
+
+        if (string.IsNullOrEmpty(inputValue))
+        {
+            FormValues[field.Name] = null;
+            await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+            await OnFieldValueChanged.InvokeAsync(new FieldValueChangedEventArgs
+            {
+                Field = field,
+                Value = null
+            });
+            return;
+        }
+
+        if (decimal.TryParse(inputValue, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal decimalValue))
+        {
+            // Apply min/max constraints
+            if (field.MinValue.HasValue && decimalValue < field.MinValue.Value)
+                decimalValue = field.MinValue.Value;
+            if (field.MaxValue.HasValue && decimalValue > field.MaxValue.Value)
+                decimalValue = field.MaxValue.Value;
+
+            // Store the raw decimal value
+            FormValues[field.Name] = decimalValue;
+
+            // Evaluate rules
+            await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+
+            await OnFieldValueChanged.InvokeAsync(new FieldValueChangedEventArgs
+            {
+                Field = field,
+                Value = decimalValue
+            });
+        }
+    }
+
+    private async Task ValidateNumberInput(FormField field, ChangeEventArgs e)
+    {
+        var inputValue = e.Value?.ToString();
+        // Add validation logic if needed
+        await Task.CompletedTask;
+    }
+
+    private string GetStepForField(FormField field)
+    {
+        return field.AllowDecimal ? "0.001" : "1"; // Support 3 decimal places
+    }
+
+    private async Task HandleFieldChange(FormField field, object value)
+    {
+        // Update form values
+        if (FormValues.ContainsKey(field.Name))
+        {
+            FormValues[field.Name] = value;
+        }
+        else
+        {
+            FormValues.Add(field.Name, value);
+        }
+
+        // Trigger rule engine evaluation
+        await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+
+        // Notify parent component about the field change
+        await OnFieldValueChanged.InvokeAsync(new FieldValueChangedEventArgs
+        {
+            Field = field,
+            Value = value
+        });
+
+        StateHasChanged();
+    }
+}

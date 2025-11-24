@@ -1,0 +1,84 @@
+﻿@using DynamicForm.Helper
+@using DynamicForm.Models
+@using Microsoft.AspNetCore.Components
+
+<InputSelect @bind-Value="CurrentValue"
+             class="form-control"
+             disabled="@Field.IsReadonly">
+    <option value="">-- Select --</option>
+    @foreach (var item in CurrentOptions)
+    {
+        <option value="@item.Value">@item.Text</option>
+    }
+</InputSelect>
+
+@code {
+    [Parameter] public FormField Field { get; set; }
+    [Parameter] public Dictionary<string, object> FormValues { get; set; }
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+
+    private List<SelectListItem> CurrentOptions { get; set; } = new();
+    private string CurrentValue
+    {
+        get => FormValues != null &&
+               FormValues.TryGetValue(Field.Name, out var val) &&
+               val != null ? val.ToString() : null;
+        set
+        {
+            if (FormValues != null && Field != null)
+            {
+                FormValues[Field.Name] = value;
+                UpdateChildDropdowns();
+            }
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        if (string.IsNullOrEmpty(Field.ParentFieldId))
+        {
+            // Regular dropdown
+            CurrentOptions = Field.Data;
+        }
+        else
+        {
+            // Cascading dropdown - wait for parent value
+            CurrentOptions = new List<SelectListItem>();
+            var parentValue = FormValues.GetValueOrDefault(GetParentField().Name)?.ToString();
+            UpdateOptions(parentValue);
+        }
+    }
+
+    private void UpdateOptions(string parentValue)
+    {
+        if (!string.IsNullOrEmpty(parentValue) &&
+            Field.CascadingData.TryGetValue(parentValue, out var options))
+        {
+            CurrentOptions = options;
+        }
+        else
+        {
+            CurrentOptions = new List<SelectListItem>();
+        }
+        CurrentValue = null; // Reset current value when options change
+        StateHasChanged();
+    }
+
+    private FormField GetParentField()
+    {
+        return FormDefinition.Fields.First(f => f.Id == Field.ParentFieldId);
+    }
+
+    private void UpdateChildDropdowns()
+    {
+        // Find fields that depend on this one
+        var childFields = FormDefinition.Fields
+            .Where(f => f.ParentFieldId == Field.Id)
+            .ToList();
+
+        foreach (var childField in childFields)
+        {
+            FormValues[childField.Name] = null; // Reset child value
+        }
+    }
+}

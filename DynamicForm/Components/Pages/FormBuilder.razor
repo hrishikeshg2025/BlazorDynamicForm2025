@@ -1,0 +1,341 @@
+﻿@page "/form-builder"
+@page "/form-builder/{Id}"
+@using DynamicForm.Components.Shared
+@using DynamicForm.Helper
+@using DynamicForm.Models
+@using DynamicForm.Services
+@inject IFormService FormService
+@inject FormBuilderState FormBuilderState
+@inject NavigationManager Navigation
+@inject IAdvancedTableLayoutService TableLayoutService
+@rendermode InteractiveServer
+<PageTitle>Form Builder</PageTitle>
+
+<h3>Form Builder</h3>
+
+<div class="form-builder-container">
+    <div class="form-builder-toolbar mb-3">
+        <button @onclick="AddNewField" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Add Field
+        </button>
+        <button @onclick="AddNewTable" class="btn btn-primary">
+            <i class="fas fa-table"></i> Add Table
+        </button>
+        <button @onclick="TogglePreview" class="btn btn-secondary">
+            <i class="fas fa-eye"></i> @(FormBuilderState.ShowPreview ? "Hide Preview" : "Show Preview")
+        </button>
+        <button @onclick="SaveForm" class="btn btn-success">
+            <i class="fas fa-save"></i> Save Form
+        </button>
+        <button @onclick="NewForm" class="btn btn-info">
+            <i class="fas fa-file"></i> New Form
+        </button>
+        <div class="btn-group ml-2">
+            <button class="btn btn-outline-secondary dropdown-toggle" type="button"
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                Layout: @FormBuilderState.CurrentForm.Layout?.Type
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" @onclick="() => SetLayout(LayoutType.Vertical)">Vertical</a></li>
+                <li><a class="dropdown-item" @onclick="() => SetLayout(LayoutType.Grid)">Grid/Table</a></li>
+                <li><a class="dropdown-item" @onclick="() => SetLayout(LayoutType.Mixed)">Mixed</a></li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="@(FormBuilderState.ShowPreview ? "col-md-6" : "col-md-12")">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Form Structure</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>Form Name</label>
+                        <InputText @bind-Value="FormBuilderState.CurrentForm.Name" class="form-control" />
+                    </div>
+
+                    <!-- Dynamic Tables Section -->
+                    @if (FormBuilderState.CurrentForm.Layout?.Tables?.Any() == true)
+                    {
+                        <div class="tables-section mb-4">
+                            <h6>Tables</h6>
+                            @foreach (var table in FormBuilderState.CurrentForm.Layout.Tables)
+                            {
+                                <div class="table-container mb-4">
+                                    <AdvancedTableEditor Table="table"
+                                                         FormDefinition="FormBuilderState.CurrentForm"
+                                                         OnTableChanged="StateHasChanged"
+                                                         OnTableRemove="RemoveTable" />
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <!-- Fields List -->
+                    @if (FormBuilderState.CurrentForm.Fields.Any())
+                    {
+                        <div class="fields-list">
+                            <h6>Fields</h6>
+                            @foreach (var field in FormBuilderState.CurrentForm.Fields)
+                            {
+                                <div class="card mb-3 field-item">
+                                    <div class="card-header d-flex justify-content-between">
+                                        <h6>@(string.IsNullOrEmpty(field.Label) ? "New Field" : field.Label)</h6>
+                                        <button @onclick="@(() => RemoveField(field))" class="btn btn-sm btn-danger">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                    <div class="card-body">
+                                        <FieldEditor Field="field"
+                                                     FormDefinition="FormBuilderState.CurrentForm"
+                                                     OnFieldChanged="FieldChanged" />
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info">
+                            No fields added yet. Click "Add Field" to get started.
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (FormBuilderState.ShowPreview)
+        {
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Form Preview</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (FormBuilderState.CurrentForm.Fields.Any() || FormBuilderState.CurrentForm.Layout?.Tables?.Any() == true)
+                        {
+                            <DynamicForm FormDefinition="FormBuilderState.CurrentForm"
+                                         FormData="CreatePreviewModel()"
+                                         OnValidSubmit="HandlePreviewSubmit"/>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning">
+                                Add fields or tables to see the preview
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(FormBuilderState.CurrentForm.Id))
+    {
+        <div class="form-builder-toolbar mb-3">
+            <!-- Existing buttons -->
+            <button @onclick="ReviewForm" class="btn btn-warning"
+                    disabled="@(FormBuilderState.CurrentForm.Fields.Count == 0)">
+                <i class="fas fa-clipboard-check"></i> Review Form
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Id { get; set; }
+    [Inject] private INumberFormatService numberFormatService { get; set; }
+    protected override async Task OnInitializedAsync()
+    {
+        FormBuilderState.OnChange += StateHasChanged;
+
+        if (!string.IsNullOrEmpty(Id))
+        {
+            var form = await FormService.GetFormAsync(Id);
+            if (form != null)
+            {
+                FormBuilderState.LoadForm(form);
+            }
+        }
+        else
+        {
+            FormBuilderState.NewForm();
+        }
+        // Defensive: ensure CurrentForm exists and has a layout before rendering
+        if (FormBuilderState.CurrentForm == null)
+        {            
+            FormBuilderState.NewForm();
+        }
+
+        FormBuilderState.CurrentForm.InitializeDefaultLayout();
+    }
+
+    private void AddNewField()
+    {
+        var newField = new FormField
+            {
+                Name = $"field{FormBuilderState.CurrentForm.Fields.Count + 1}",
+                Label = $"Field {FormBuilderState.CurrentForm.Fields.Count + 1}",
+                Type = FieldType.Text
+            };
+        FormBuilderState.CurrentForm.Fields.Add(newField);
+        FormBuilderState.NotifyStateChanged();
+    }
+    private void AddNewTable()
+    {
+        // Ensure layout and tables collection exist, then create a 2x2 table
+        var layout = FormBuilderState.CurrentForm.Layout ??= new FormLayout { Type = LayoutType.Grid };
+        layout.Tables ??= new List<DynamicTable>();
+        
+        var tableIndex = layout.Tables.Count;
+        var table = TableLayoutService.CreateTable($"Table {tableIndex + 1}", 2, 2);
+        layout.Tables.Add(table);
+        layout.Type = LayoutType.Grid;
+        FormBuilderState.NotifyStateChanged();        
+    }
+
+    private async Task RemoveTable(DynamicTable table)
+    {
+        FormBuilderState.CurrentForm.Layout.Tables.Remove(table);
+        FormBuilderState.NotifyStateChanged();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void SetLayout(LayoutType layoutType)
+    {
+        FormBuilderState.CurrentForm.Layout.Type = layoutType;
+        FormBuilderState.NotifyStateChanged();
+    }
+    private void RemoveField(FormField field)
+    {
+        FormBuilderState.CurrentForm.Fields.Remove(field);
+
+        // Remove field from all tables
+        foreach (var table in FormBuilderState.CurrentForm.Layout.Tables)
+        {
+            foreach (var row in table.TableRows)
+            {
+                foreach (var cell in row.Cells.Where(c => c.FieldId == field.Id))
+                {
+                    cell.FieldId = null;
+                    cell.CellType = CellType.StaticText;
+                }
+            }
+        }
+
+        FormBuilderState.NotifyStateChanged();
+    }
+
+    private void FieldChanged()
+    {
+        FormBuilderState.NotifyStateChanged();
+    }
+
+    private async Task SaveForm()
+    {
+        try
+        {
+            // Save the form and get its ID
+            var formId = await FormService.SaveFormAsync(FormBuilderState.CurrentForm);
+
+            // Update the current form ID if it's new
+            if (string.IsNullOrEmpty(FormBuilderState.CurrentForm.Id))
+            {
+                FormBuilderState.CurrentForm.Id = formId;
+            }
+
+            Navigation.NavigateTo($"/form-builder/{formId}");
+        }
+        catch (Exception ex)
+        {
+            // Handle error (show toast, etc.)
+            Console.WriteLine($"Error saving form: {ex.Message}");
+        }
+    }
+
+    private void NewForm()
+    {
+        FormBuilderState.NewForm();
+        Navigation.NavigateTo("/form-builder");
+    }
+
+    private void TogglePreview()
+    {
+        FormBuilderState.TogglePreview();
+    }
+
+    private object GetDefaultValue(FieldType type)
+    {
+        return type switch
+        {
+            FieldType.Number => 0,
+            FieldType.Checkbox => false,
+            FieldType.Date => DateTime.Today,
+            _ => string.Empty
+        };
+    }
+    private void ReviewForm()
+    {
+        if (!string.IsNullOrEmpty(FormBuilderState.CurrentForm.Id))
+        {
+            Navigation.NavigateTo($"/form-review/{FormBuilderState.CurrentForm.Id}");
+        }
+        else
+        {
+            // Show error message to user
+            Console.WriteLine("Please save the form before reviewing");
+        }
+    }
+    private async Task HandlePreviewSubmit(Dictionary<string, object> formValues)
+    {
+        Console.WriteLine("Preview form submitted!");
+        Console.WriteLine($"Received {formValues.Count} field values:");
+
+        foreach (var kvp in formValues)
+        {
+            Console.WriteLine($"  {kvp.Key}: {kvp.Value}");
+        }
+
+        // You can process the form values here
+        // For example: save to OSDU database, show confirmation, etc.
+
+        // Show success message
+        // You might want to use a radzen notification or alert here
+        Console.WriteLine("Form submitted successfully in preview mode!");
+
+        // Optional: Show alert to user
+        // await JSRuntime.InvokeVoidAsync("alert", "Form submitted successfully!");
+    }
+
+    private async Task HandlePreviewDataChanged(Dictionary<string, object> formData)
+    {
+        // Update the preview model if needed
+        StateHasChanged();
+    }
+
+    private Dictionary<string, object> CreatePreviewModel()
+    {
+        var model = new Dictionary<string, object>();
+        foreach (var field in FormBuilderState.CurrentForm.Fields)
+        {
+            var defaultValue = field.DefaultValue ?? GetDefaultValue(field.Type);
+
+            // Format number fields with proper decimal places
+            if (field.Type == FieldType.Number && defaultValue is string stringValue)
+            {
+                if (decimal.TryParse(stringValue, out decimal decimalValue))
+                {
+                    defaultValue = numberFormatService.FormatDecimalForDisplay(decimalValue, field.DecimalPlaces ?? 2);
+                }
+            }
+
+            model[field.Name] = defaultValue;
+        }
+        return model;
+    }
+    public void Dispose()
+    {
+        FormBuilderState.OnChange -= StateHasChanged;
+    }
+}

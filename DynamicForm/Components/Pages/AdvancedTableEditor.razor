@@ -1,0 +1,724 @@
+﻿@* Components/AdvancedTableEditor.razor - FIXED *@
+@using DynamicForm.Models
+@using DynamicForm.Services
+@implements IDisposable
+
+<div class="advanced-table-editor">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5>@Table?.Name</h5>
+            <div>
+                <button @onclick="ToggleConfig" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-cog"></i> @(showConfig ? "Hide Config" : "Show Config")
+                </button>
+                <button @onclick="RemoveTable" class="btn btn-sm btn-danger">
+                    <i class="fas fa-trash"></i> Remove Table
+                </button>
+            </div>
+        </div>
+        
+        <div class="card-body">
+            <!-- Table Configuration -->
+            @if (showConfig)
+            {
+                <div class="table-configuration mb-4 p-3 border rounded bg-light">
+                    <h6>Table Configuration</h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label>Table Name</label>
+                            <input @bind="Table.Name" @bind:event="oninput" class="form-control" />
+                        </div>
+                        <div class="col-md-4">
+                            <label>Title</label>
+                            <input @bind="Table.Title" @bind:event="oninput" class="form-control" />
+                        </div>
+                        <div class="col-md-4">
+                            <label>CSS Class</label>
+                            <input @bind="Table.CssClass" @bind:event="oninput" class="form-control" />
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <label>Rows: @Table.Rows</label>
+                            <div class="btn-group btn-group-sm">
+                                <button @onclick="AddNewRow" class="btn btn-success" title="Add Row">
+                                    <i class="fas fa-plus"></i> Add
+                                </button>
+                                <button @onclick="() => RemoveLastRow()" class="btn btn-danger" 
+                                        disabled="@(Table.Rows <= 1)" title="Remove Last Row">
+                                    <i class="fas fa-minus"></i> Remove
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <label>Columns: @Table.Columns</label>
+                            <div class="btn-group btn-group-sm">
+                                <button @onclick="AddNewColumn" class="btn btn-success" title="Add Column">
+                                    <i class="fas fa-plus"></i> Add
+                                </button>
+                                <button @onclick="() => RemoveLastColumn()" class="btn btn-danger"
+                                        disabled="@(Table.Columns <= 1)" title="Remove Last Column">
+                                    <i class="fas fa-minus"></i> Remove
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-3">
+                                <input type="checkbox" @bind="Table.ShowHeaders" class="form-check-input" />
+                                <label class="form-check-label">Show Headers</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-3">
+                                <input type="checkbox" @bind="Table.ShowFooter" class="form-check-input" />
+                                <label class="form-check-label">Show Footer</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- Table Grid Editor - FIXED CLICK HANDLING -->
+            <div class="table-grid-editor">
+                <h6>Table Layout - Click cells to configure</h6>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-editor-grid @Table?.CssClass">
+                        @if (Table.ShowHeaders && Table.Headers?.Any() == true)
+                        {
+                            <thead>
+                                <tr>
+                                    @for (int col = 0; col < Table.Headers.Count; col++)
+                                    {
+                                        <th colspan="@Table.Headers[col].ColSpan" 
+                                            style="min-width: 120px; background-color: #f8f9fa;">
+                                            @Table.Headers[col].Text
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                        }
+                        <tbody>
+                            @for (int rowIndex = 0; rowIndex < Table.Rows; rowIndex++)
+                            {
+                                var currentRow = rowIndex; // Capture current row value
+                                <tr>
+                                    @for (int colIndex = 0; colIndex < Table.Columns; colIndex++)
+                                    {
+                                        var currentCol = colIndex; // Capture current column value
+                                        var cell = TableLayoutService.GetCell(Table, currentRow, currentCol);
+                                        var field = GetFieldInCell(cell);
+                                        
+                                        if (cell != null && cell.ColSpan > 0 && cell.RowSpan > 0)
+                                        {
+                                            <td colspan="@cell.ColSpan" rowspan="@cell.RowSpan"
+                                                class="table-cell @GetCellCssClass(cell)"
+                                                @onclick="@(() => OpenCellEditor(currentRow, currentCol))">
+                                                
+                                                <div class="cell-content">
+                                                    @if (IsCellConfigured(cell))
+                                                    {
+                                                        <!-- SHOW CONFIGURED CONTENT -->
+                                                        @if (cell.CellType == CellType.Field && field != null)
+                                                        {
+                                                            <div class="cell-field-content">
+                                                                <div class="cell-label">
+                                                                    <strong>@(GetCellDisplayLabel(cell, field))</strong>
+                                                                </div>
+                                                                <div class="cell-type-badge">
+                                                                    <span class="badge badge-info">@field.Type</span>
+                                                                </div>
+                                                                <div class="cell-status">
+                                                                    <small class="text-success"><i class="fas fa-check-circle"></i> Configured</small>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        else if (cell.CellType == CellType.FieldLabel && field != null)
+                                                        {
+                                                            <div class="cell-fieldlabel-content">
+                                                                <div class="cell-label">
+                                                                    <strong>@(GetCellDisplayLabel(cell, field))</strong>
+                                                                </div>
+                                                                <div class="cell-type-badge">
+                                                                    <span class="badge badge-primary">Label</span>
+                                                                </div>
+                                                                <div class="cell-status">
+                                                                    <small class="text-success"><i class="fas fa-check-circle"></i> Field Label</small>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        else if (cell.CellType == CellType.StaticText && !string.IsNullOrEmpty(cell.Text))
+                                                        {
+                                                            <div class="cell-text-content">
+                                                                <div class="cell-label">
+                                                                    <strong>"@cell.Text"</strong>
+                                                                </div>
+                                                                <div class="cell-type-badge">
+                                                                    <span class="badge badge-secondary">Text</span>
+                                                                </div>
+                                                                <div class="cell-status">
+                                                                    <small class="text-success"><i class="fas fa-check-circle"></i> Configured</small>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        else if (cell.CellType == CellType.Calculation && !string.IsNullOrEmpty(cell.Expression))
+                                                        {
+                                                            <div class="cell-calculation-content">
+                                                                <div class="cell-label">
+                                                                    <code>= @cell.Expression</code>
+                                                                </div>
+                                                                <div class="cell-type-badge">
+                                                                    <span class="badge badge-warning">Calculation</span>
+                                                                </div>
+                                                                <div class="cell-status">
+                                                                    <small class="text-success"><i class="fas fa-check-circle"></i> Configured</small>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        else if (cell.CellType == CellType.NestedTable && cell.NestedTable != null)
+                                                        {
+                                                            <div class="cell-nested-content">
+                                                                <div class="cell-label">
+                                                                    <strong>📊 @cell.NestedTable.Name</strong>
+                                                                </div>
+                                                                <div class="cell-type-badge">
+                                                                    <span class="badge badge-dark">Nested Table</span>
+                                                                </div>
+                                                                <div class="cell-status">
+                                                                    <small class="text-success"><i class="fas fa-check-circle"></i> Configured</small>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        <!-- SHOW "CLICK TO CONFIGURE" PLACEHOLDER -->
+                                                        <div class="cell-placeholder">
+                                                            <i class="fas fa-edit"></i>
+                                                            <div>Click to configure</div>
+                                                        </div>
+                                                    }
+
+                                                    <!-- Action buttons - only show on hover -->
+                                                    <div class="cell-actions">
+                                                        <button @onclick="@((e) => { ClearCell(currentRow, currentCol); })" 
+                                                                class="btn btn-sm btn-danger" title="Clear cell">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        }
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                        @if (Table.ShowFooter && Table.Footer?.Cells?.Any() == true)
+                        {
+                            <tfoot>
+                                <tr>
+                                    @foreach (var footerCell in Table.Footer.Cells)
+                                    {
+                                        <td colspan="@footerCell.ColSpan" style="background-color: #f8f9fa;">
+                                            @footerCell.Text
+                                        </td>
+                                    }
+                                </tr>
+                            </tfoot>
+                        }
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cell Editor Modal -->
+    @if (showCellEditor)
+    {
+        <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Configure Cell (Row @(currentRow + 1), Column @(currentColumn + 1))</h5>
+                        <button type="button" class="close" @onclick="CloseCellEditor">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label class="font-weight-bold">Cell Type</label>
+                                    <select @bind="currentCellType" class="form-control">
+                                        <option value="Field">Field Input</option>
+                                        <option value="FieldLabel">Field Label</option>
+                                        <option value="StaticText">Static Text</option>
+                                        <option value="Calculation">Calculation</option>
+                                        <option value="NestedTable">Nested Table</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label>Column Span</label>
+                                    <input type="number" @bind="currentColSpan" @bind:event="oninput" 
+                                           class="form-control" min="1" max="@(Table.Columns - currentColumn)" />
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label>Row Span</label>
+                                    <input type="number" @bind="currentRowSpan" @bind:event="oninput" 
+                                           class="form-control" min="1" max="@(Table.Rows - currentRow)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <div class="cell-type-content">
+                            @if (currentCellType == "Field" || currentCellType == "FieldLabel")
+                            {
+                                <div class="form-group">
+                                    <label class="font-weight-bold">Select Form Field</label>
+                                    <select @bind="selectedFieldId" class="form-control">
+                                        <option value="">-- Select a field --</option>
+                                        @foreach (var field in AvailableFields)
+                                        {
+                                            <option value="@field.Id">@field.Label (@field.Type)</option>
+                                        }
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>
+                                        Custom Label
+                                        @if (currentCellType == "FieldLabel")
+                                        {
+                                            <span class="text-muted">(required for Field Label type)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">(optional - overrides field label)</span>
+                                        }
+                                    </label>
+                                    <input @bind="customLabel" @bind:event="oninput" class="form-control"
+                                           placeholder="@GetLabelPlaceholder()" />
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(selectedFieldId))
+                                {
+                                    var selectedField = AvailableFields.FirstOrDefault(f => f.Id == selectedFieldId);
+                                    if (selectedField != null)
+                                    {
+                                        <div class="alert alert-info">
+                                            @if (currentCellType == "Field")
+                                            {
+                                                <div><strong>Field Input Preview:</strong> Will display input control for "@selectedField.Label"</div>
+                                            }
+                                            else
+                                            {
+                                                <div><strong>Field Label Preview:</strong> Will display label text for "@selectedField.Label"</div>
+                                            }
+                                            <div><small>Type: @selectedField.Type</small></div>
+                                            @if (!string.IsNullOrEmpty(selectedField.DefaultValue))
+                                            {
+                                                <div><small>Default: @selectedField.DefaultValue</small></div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            }
+                            else if (currentCellType == "StaticText")
+                            {
+                                <div class="form-group">
+                                    <label class="font-weight-bold">Text Content</label>
+                                    <input @bind="staticText" @bind:event="oninput" class="form-control" 
+                                           placeholder="Enter text to display in this cell" />
+                                    <small class="form-text text-muted">
+                                        This text will be displayed as static content in the table cell.
+                                    </small>
+                                </div>
+                            }
+                            else if (currentCellType == "Calculation")
+                            {
+                                <div class="form-group">
+                                    <label class="font-weight-bold">Calculation Expression</label>
+                                    <input @bind="calculationExpression" @bind:event="oninput" class="form-control" 
+                                           placeholder="e.g., =Table1[0,0] + Table1[0,1]" />
+                                    <small class="form-text text-muted">
+                                        Use <code>TableId[row,col]</code> to reference other cells. 
+                                        Example: <code>=Table1[0,0] * 2</code> or <code>=[0,0] + [0,1]</code> for current table.
+                                    </small>
+                                </div>
+                            }
+                            else if (currentCellType == "NestedTable")
+                            {
+                                <div class="form-group">
+                                    <label class="font-weight-bold">Nested Table</label>
+                                    <div class="d-flex gap-2 mb-2">
+                                        <button type="button" @onclick="CreateNestedTable" class="btn btn-primary">
+                                            <i class="fas fa-plus"></i> Create New Nested Table
+                                        </button>
+                                        @if (nestedTable != null)
+                                        {
+                                            <button type="button" @onclick="RemoveNestedTableFromEditor" class="btn btn-danger">
+                                                <i class="fas fa-trash"></i> Remove Nested Table
+                                            </button>
+                                        }
+                                    </div>
+                                    @if (nestedTable != null)
+                                    {
+                                        <div class="mt-2 p-3 border rounded bg-light">
+                                            <h6>Nested Table: @nestedTable.Name</h6>
+                                            <p class="mb-1"><strong>Size:</strong> @nestedTable.Rows x @nestedTable.Columns</p>
+                                            <p class="mb-0"><strong>Headers:</strong> @(nestedTable.ShowHeaders ? "Yes" : "No")</p>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="alert alert-warning">
+                                            No nested table configured. Click "Create New Nested Table" to add one.
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" @onclick="CloseCellEditor" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button type="button" @onclick="SaveCell" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save Cell
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public DynamicTable Table { get; set; }
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+    [Parameter] public EventCallback OnTableChanged { get; set; }
+    [Parameter] public EventCallback<DynamicTable> OnTableRemove { get; set; }
+
+    [Inject] private IAdvancedTableLayoutService TableLayoutService { get; set; }
+
+    private bool showConfig = true;
+    private bool showCellEditor = false;
+    private int currentRow;
+    private int currentColumn;
+    private string currentCellType = "Field";
+    private int currentColSpan = 1;
+    private int currentRowSpan = 1;
+    private string selectedFieldId;
+    private string customLabel;
+    private string staticText;
+    private string calculationExpression;
+    private DynamicTable nestedTable;
+
+    private List<FormField> AvailableFields => FormDefinition?.Fields ?? new List<FormField>();
+
+    protected override void OnInitialized()
+    {
+        if (Table != null)
+        {
+            Table.Headers ??= new List<TableHeader>();
+            Table.Footer ??= new TableFooter { Cells = new List<TableCell>() };
+            Table.TableRows ??= new List<TableRow>();
+        }
+    }
+    private string GetLabelPlaceholder()
+    {
+        if (currentCellType == "FieldLabel")
+        {
+            return "Enter label text to display";
+        }
+        return "Leave empty to use field label";
+    }
+    private bool IsCellConfigured(TableCell cell)
+    {
+        if (cell == null) return false;
+        
+        return cell.CellType switch
+        {
+            CellType.Field => !string.IsNullOrEmpty(cell.FieldId),
+            CellType.StaticText => !string.IsNullOrEmpty(cell.Text),
+            CellType.FieldLabel => !string.IsNullOrEmpty(cell.FieldId),
+            CellType.Calculation => !string.IsNullOrEmpty(cell.Expression),
+            CellType.NestedTable => cell.NestedTable != null,
+            _ => false
+        };
+    }
+
+    private FormField GetFieldInCell(TableCell cell)
+    {
+        if (cell == null || string.IsNullOrEmpty(cell.FieldId)) return null;
+        return FormDefinition.Fields.FirstOrDefault(f => f.Id == cell.FieldId);
+    }
+
+    private string GetCellDisplayLabel(TableCell cell, FormField field)
+    {
+        return !string.IsNullOrEmpty(cell.Label) ? cell.Label : field?.Label ?? "Unknown Field";
+    }
+
+    private string GetCellCssClass(TableCell cell)
+    {
+        var classes = new List<string>();
+        
+        if (IsCellConfigured(cell)) 
+            classes.Add("cell-configured");
+        else 
+            classes.Add("cell-empty");
+
+        return string.Join(" ", classes);
+    }
+
+    private void ToggleConfig()
+    {
+        showConfig = !showConfig;
+    }
+
+    private async Task RemoveTable()
+    {
+        await OnTableRemove.InvokeAsync(Table);
+    }
+
+    private void OpenCellEditor(int row, int column)
+    {
+        Console.WriteLine($"Opening cell editor for row: {row}, column: {column}");
+        
+        currentRow = row;
+        currentColumn = column;
+        
+        var cell = TableLayoutService.GetCell(Table, row, column);
+        Console.WriteLine($"Retrieved cell: {cell != null}");
+        
+        if (cell != null)
+        {
+            currentCellType = cell.CellType.ToString();
+            currentColSpan = cell.ColSpan;
+            currentRowSpan = cell.RowSpan;
+            
+            Console.WriteLine($"Cell type: {currentCellType}, ColSpan: {currentColSpan}, RowSpan: {currentRowSpan}");
+            
+            switch (cell.CellType)
+            {
+                case CellType.Field:
+                    selectedFieldId = cell.FieldId;
+                    customLabel = cell.Label;
+                    Console.WriteLine($"Field ID: {selectedFieldId}, Custom Label: {customLabel}");
+                    break;
+                case CellType.StaticText:
+                    staticText = cell.Text;
+                    Console.WriteLine($"Static Text: {staticText}");
+                    break;
+                case CellType.Calculation:
+                    calculationExpression = cell.Expression;
+                    Console.WriteLine($"Calculation: {calculationExpression}");
+                    break;
+                case CellType.NestedTable:
+                    nestedTable = cell.NestedTable;
+                    Console.WriteLine($"Nested Table: {nestedTable?.Name}");
+                    break;
+            }
+        }
+        else
+        {
+            Console.WriteLine("Cell is null, resetting editor");
+            ResetCellEditor();
+        }
+        
+        showCellEditor = true;
+        StateHasChanged();
+    }
+
+    private void ResetCellEditor()
+    {
+        currentCellType = "Field";
+        currentColSpan = 1;
+        currentRowSpan = 1;
+        selectedFieldId = null;
+        customLabel = null;
+        staticText = null;
+        calculationExpression = null;
+        nestedTable = null;
+    }
+
+    private void CloseCellEditor()
+    {
+        showCellEditor = false;
+        ResetCellEditor();
+        StateHasChanged();
+    }
+
+    private void OnCellTypeChanged()
+    {
+        if (currentCellType == "FieldLabel" && !string.IsNullOrEmpty(selectedFieldId))
+        {
+            var selectedField = AvailableFields.FirstOrDefault(f => f.Id == selectedFieldId);
+            if (selectedField != null && string.IsNullOrEmpty(customLabel))
+            {
+                customLabel = selectedField.Label;
+            }
+        }
+
+        // Clear other fields when cell type changes
+        if (currentCellType != "Field" && currentCellType != "FieldLabel")
+        {
+            selectedFieldId = null;
+            customLabel = null;
+        }
+
+        staticText = null;
+        calculationExpression = null;
+        nestedTable = null;
+    }
+
+    private void CreateNestedTable()
+    {
+        nestedTable = TableLayoutService.CreateTable($"{Table.Name} - Nested", 2, 2);
+        StateHasChanged();
+    }
+
+    private void RemoveNestedTableFromEditor()
+    {
+        nestedTable = null;
+        StateHasChanged();
+    }
+
+    private async Task SaveCell()
+    {
+        try
+        {
+            Console.WriteLine($"Saving cell at row: {currentRow}, column: {currentColumn}");
+            Console.WriteLine($"Cell type: {currentCellType}, ColSpan: {currentColSpan}, RowSpan: {currentRowSpan}");
+
+            switch (currentCellType)
+            {
+                case "Field":
+                    if (!string.IsNullOrEmpty(selectedFieldId))
+                    {
+                        Console.WriteLine($"Mapping field {selectedFieldId} to cell as input field");
+                        TableLayoutService.MapFieldToCell(Table, selectedFieldId, currentRow, currentColumn,
+                                                         currentColSpan, currentRowSpan, customLabel);
+                        // Ensure cell type is set to Field
+                        var cell = TableLayoutService.GetCell(Table, currentRow, currentColumn);
+                        if (cell != null) cell.CellType = CellType.Field;
+                    }
+                    else
+                    {
+                        TableLayoutService.ClearCell(Table, currentRow, currentColumn);
+                    }
+                    break;
+
+                case "FieldLabel":
+                    if (!string.IsNullOrEmpty(selectedFieldId))
+                    {
+                        Console.WriteLine($"Mapping field {selectedFieldId} to cell as label only");
+                        TableLayoutService.MapFieldToCell(Table, selectedFieldId, currentRow, currentColumn,
+                                                         currentColSpan, currentRowSpan, customLabel);
+                        // Set cell type to FieldLabel
+                        var cell = TableLayoutService.GetCell(Table, currentRow, currentColumn);
+                        if (cell != null)
+                        {
+                            cell.CellType = CellType.FieldLabel;
+                            // Ensure we have a label - use field label if custom label is empty
+                            if (string.IsNullOrEmpty(cell.Label))
+                            {
+                                var field = GetFieldInCell(cell);
+                                cell.Label = field?.Label ?? "Unknown Field";
+                            }
+                            Console.WriteLine($"Cell type set to: {cell.CellType}, Label: {cell.Label}");
+                        }
+                    }
+                    else
+                    {
+                        TableLayoutService.ClearCell(Table, currentRow, currentColumn);
+                    }
+                    break;
+
+                case "StaticText":
+                    TableLayoutService.SetCellText(Table, currentRow, currentColumn, staticText,
+                                                  currentColSpan, currentRowSpan);
+                    break;
+
+                case "Calculation":
+                    TableLayoutService.SetCellCalculation(Table, currentRow, currentColumn, calculationExpression,
+                                                        currentColSpan, currentRowSpan);
+                    break;
+
+                case "NestedTable":
+                    if (nestedTable != null)
+                    {
+                        TableLayoutService.AddNestedTable(Table, currentRow, currentColumn, nestedTable);
+                    }
+                    else
+                    {
+                        TableLayoutService.ClearCell(Table, currentRow, currentColumn);
+                    }
+                    break;
+            }
+
+            CloseCellEditor();
+            await OnTableChanged.InvokeAsync();
+            StateHasChanged();
+
+            Console.WriteLine("Cell saved successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving cell: {ex.Message}");
+        }
+    }
+
+    private async Task ClearCell(int row, int column)
+    {
+        Console.WriteLine($"Clearing cell at row: {row}, column: {column}");
+        TableLayoutService.ClearCell(Table, row, column);
+        await OnTableChanged.InvokeAsync();
+        StateHasChanged(); // Force re-render to update cell display
+    }
+
+    private async Task AddNewRow()
+    {
+        TableLayoutService.AddRow(Table);
+        await OnTableChanged.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private async Task RemoveLastRow()
+    {
+        if (Table.Rows > 1)
+        {
+            TableLayoutService.RemoveRow(Table, Table.Rows - 1);
+            await OnTableChanged.InvokeAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddNewColumn()
+    {
+        TableLayoutService.AddColumn(Table);
+        await OnTableChanged.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private async Task RemoveLastColumn()
+    {
+        if (Table.Columns > 1)
+        {
+            TableLayoutService.RemoveColumn(Table, Table.Columns - 1);
+            await OnTableChanged.InvokeAsync();
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        // Cleanup if needed
+    }
+}

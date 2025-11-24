@@ -1,0 +1,363 @@
+﻿@using System.Linq.Expressions
+@using DynamicForm.Models
+@using DynamicForm.Services
+@using DynamicForm.Helper
+
+
+<div class="field-editor">
+    <div class="form-group">
+        <label>Field Type</label>
+        <label>Field Type</label>
+        <InputSelect Value="Field.Type"
+        ValueChanged="@(async (FieldType value) => { Field.Type = value; await OnFieldChanged.InvokeAsync(); })"
+        ValueExpression="@(() => Field.Type)"
+        class="form-control">
+            @foreach (var type in Enum.GetValues(typeof(FieldType)))
+            {
+                <option value="@type">@type</option>
+            }
+        </InputSelect>
+    </div>
+
+    <div class="form-group">
+        <label>Name (Technical Name)</label>
+        <InputText @bind-Value="Field.Name" class="form-control" />
+    </div>
+
+    <div class="form-group">
+        <label>Label (Display Text)</label>
+        <InputText @bind-Value="Field.Label" class="form-control" />
+    </div>
+
+    @if (Field.Type != FieldType.DropDown && Field.Type != FieldType.Checkbox)
+    {
+        <div class="form-group">
+            <label>Default Value</label>
+            <InputText @bind-Value="Field.DefaultValue" class="form-control" />
+        </div>
+    }
+
+    <div class="form-check">
+        <InputCheckbox @bind-Value="Field.IsRequired" class="form-check-input" />
+        <label class="form-check-label">Required</label>
+    </div>
+
+    <div class="form-check">
+        <InputCheckbox @bind-Value="Field.IsReadonly" class="form-check-input" />
+        <label class="form-check-label">Readonly</label>
+    </div>
+
+    <div class="form-check">
+        <InputCheckbox @bind-Value="Field.IsHidden" class="form-check-input" />
+        <label class="form-check-label">Hidden</label>
+    </div>
+
+    @if (Field.Type == FieldType.Text)
+    {
+        <div class="row">
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label>Min Length</label>
+                    <InputNumber @bind-Value="Field.MinLength" class="form-control" />
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label>Max Length</label>
+                    <InputNumber @bind-Value="Field.MaxLength" class="form-control" />
+                </div>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Regex Pattern</label>
+            <InputText @bind-Value="Field.RegexPattern" class="form-control" />
+            <small class="form-text text-muted">Optional regular expression pattern for validation</small>
+        </div>
+    }
+    @if (Field.Type == FieldType.Number)
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6>Number Configuration</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Decimal Places</label>
+                            <InputNumber @bind-Value="Field.DecimalPlaces" class="form-control"
+                                         min="0" max="6" />
+                            <small class="form-text text-muted">Number of decimal places to display (0-6)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check mt-4">
+                            <InputCheckbox @bind-Value="Field.AllowDecimal" class="form-check-input" />
+                            <label class="form-check-label">Allow Decimal Input</label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Default Value</label>
+                            <input type="number"
+                                   @bind="DefaultNumberValue"
+                                   class="form-control"
+                                   step="@GetStepValue()" />
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Minimum Value</label>
+                            <input type="number"
+                                   @bind="Field.MinValue"
+                                   class="form-control"
+                                   step="@GetStepValue()" />
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Maximum Value</label>
+                            <input type="number"
+                                   @bind="Field.MaxValue"
+                                   class="form-control"
+                                   step="@GetStepValue()" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    @if (Field.Type == FieldType.DropDown || Field.Type == FieldType.CascadingDropDown)
+    {
+        <div class="form-group">
+            <label>
+                <InputCheckbox @bind-Value="IsCascading" />
+                Is Cascading Dropdown
+            </label>
+            @if (IsCascading)
+            {
+                <div class="card p-2 mt-2">
+                    <div class="form-group">
+                        <label>Parent Dropdown</label>
+                        <InputSelect @bind-Value="Field.ParentFieldId" class="form-control">
+                            <option value="">-- Select Parent --</option>
+                            @foreach (var parentField in FormDefinition.Fields
+                       .Where(f => f.Type == FieldType.DropDown && f.Id != Field.Id))
+                            {
+                                <option value="@parentField.Id">@parentField.Label</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="form-group">
+                        <label>Cascading Options</label>
+                        @if (string.IsNullOrEmpty(Field.ParentFieldId))
+                        {
+                            <div class="alert alert-info">
+                                Select a parent dropdown first
+                            </div>
+                        }
+                        else
+                        {
+                            var parentField = FormDefinition.Fields.FirstOrDefault(f => f.Id == Field.ParentFieldId);
+                            if (parentField != null)
+                            {
+                                foreach (var parentOption in parentField.Data)
+                                {
+                                    <div class="mb-3">
+                                        <label>Options when @parentField.Label is '@parentOption.Text'</label>
+                                        <button @onclick="@(() => AddCascadingOption(parentOption.Value))" 
+                                        class="btn btn-sm btn-primary mb-2">
+                                            Add Option
+                                        </button>
+
+                                        @foreach (var item in GetCascadingOptions(parentOption.Value))
+                                        {
+                                            <div class="input-group mb-2">
+                                                <InputText @bind-Value="item.Value" class="form-control" placeholder="Value" />
+                                                <InputText @bind-Value="item.Text" class="form-control" placeholder="Text" />
+                                                <button @onclick="@(() => RemoveCascadingOption(parentOption.Value, item))"
+                                                class="btn btn-danger">
+                                                    &times;
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
+                </div>
+            }
+            @if (!IsCascading)
+            {
+                <div class="form-group mt-3">
+                    <label>Dropdown Options</label>
+                    @foreach (var item in Field.Data)
+                    {
+                        <div class="input-group mb-2">
+                            <InputText @bind-Value="item.Value" class="form-control" placeholder="Value" />
+                            <InputText @bind-Value="item.Text" class="form-control" placeholder="Text" />
+                            <button @onclick="@(() => RemoveDropdownItem(item))" class="btn btn-danger">
+                                &times;
+                            </button>
+                        </div>
+                    }
+                    <button @onclick="AddDropdownItem" class="btn btn-secondary">
+                        <i class="fas fa-plus"></i> Add Option
+                    </button>
+                </div>
+            }
+        </div>
+    }   
+
+    <div class="rules-section mt-4">
+        <h5>Rules</h5>
+        <div class="rules-list">
+            @foreach (var rule in Field.Rules)
+            {
+                <div class="card mb-2">
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Target Field</label>
+                            <InputSelect @bind-Value="rule.TargetFieldId" class="form-control">
+                                <option value="">-- Select Target Field --</option>
+                                @foreach (var targetField in FormDefinition.Fields.Where(f => f.Id != Field.Id))
+                                {
+                                    <option value="@targetField.Id">@targetField.Label</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="form-group">
+                            <label>Condition</label>
+                            <InputText @bind-Value="rule.Condition" class="form-control" placeholder="e.g., value > 18" />
+                        </div>
+                        <div class="form-group">
+                            <label>Actions</label>
+                            @foreach (var action in rule.Actions)
+                            {
+                                <div class="action-item mb-2">
+                                    <div class="input-group">
+                                        <select @bind="action.Type" class="form-control">
+                                            <option value="show">Show Field</option>
+                                            <option value="hide">Hide Field</option>
+                                            <option value="enable">Enable Field</option>
+                                            <option value="disable">Disable Field</option>
+                                            <option value="setValue">Set Value</option>
+                                            <option value="calculate">Calculate Value</option>
+                                            <option value="loadOptions">Load Options</option>
+                                        </select>
+                                        @if (action.Type == "setValue")
+                                        {
+                                            <input type="text" @bind="action.Value" class="form-control" placeholder="Value" />
+                                        }
+                                        @if (action.Type == "calculate") 
+                                        {
+                                            <input type="text" @bind="action.Expression" class="form-control" 
+                                                   placeholder="e.g., field1 * field2" />
+                                            <small class="form-text text-muted">
+                                                Use field names and mathematical operators: + - * / ( )
+                                            </small>
+                                        }
+                                        <button @onclick="@(() => RemoveAction(rule, action))" class="btn btn-danger">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            <button @onclick="@(() => AddAction(rule))" class="btn btn-secondary">
+                                <i class="fas fa-plus"></i> Add Action
+                            </button>
+                        </div>
+                        <button @onclick="@(() => RemoveRule(rule))" class="btn btn-sm btn-danger">
+                            <i class="fas fa-trash"></i> Remove Rule
+                        </button>
+                    </div>
+                </div>
+            }
+            <button @onclick="AddRule" class="btn btn-secondary">
+                <i class="fas fa-plus"></i> Add Rule
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public FormField Field { get; set; }
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+    [Parameter] public EventCallback OnFieldChanged { get; set; }
+
+    private bool IsCascading
+    {
+        get => Field.Type == FieldType.CascadingDropDown;
+        set => Field.Type = value ? FieldType.CascadingDropDown : FieldType.DropDown;
+    }
+
+    private List<SelectListItem> GetCascadingOptions(string parentValue)
+    {
+        if (!Field.CascadingData.ContainsKey(parentValue))
+        {
+            Field.CascadingData[parentValue] = new List<SelectListItem>();
+        }
+        return Field.CascadingData[parentValue];
+    }
+    private string GetStepValue()
+    {
+        // For decimal numbers, use a small step to allow 3 decimal places
+        // For integers, use step=1
+        return Field.AllowDecimal ? "any" : "1";
+    }
+
+    private string DefaultNumberValue
+    {
+        get => Field.DefaultValue;
+        set => Field.DefaultValue = value;
+    }
+    private void AddCascadingOption(string parentValue)
+    {
+        GetCascadingOptions(parentValue).Add(new SelectListItem());
+        OnFieldChanged.InvokeAsync();
+    }
+
+    private void RemoveCascadingOption(string parentValue, SelectListItem item)
+    {
+        GetCascadingOptions(parentValue).Remove(item);
+        OnFieldChanged.InvokeAsync();
+    }
+
+    private void AddDropdownItem()
+    {
+        Field.Data.Add(new SelectListItem());
+        OnFieldChanged.InvokeAsync();
+    }
+
+    private void RemoveDropdownItem(SelectListItem item)
+    {
+        Field.Data.Remove(item);
+        OnFieldChanged.InvokeAsync();
+    }
+    private void AddRule()
+    {
+        Field.Rules.Add(new FieldRule());
+        OnFieldChanged.InvokeAsync();
+    }
+
+    private void RemoveRule(FieldRule rule)
+    {
+        Field.Rules.Remove(rule);
+        OnFieldChanged.InvokeAsync();
+    }
+
+    private void AddAction(FieldRule rule)
+    {
+        rule.Actions.Add(new FieldAction { Type = "enable" });
+        OnFieldChanged.InvokeAsync();
+    }
+
+    private void RemoveAction(FieldRule rule, FieldAction action)
+    {
+        rule.Actions.Remove(action);
+        OnFieldChanged.InvokeAsync();
+    }
+}

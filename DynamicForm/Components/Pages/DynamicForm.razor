@@ -1,0 +1,827 @@
+﻿@using DynamicForm.Components.Shared
+@using DynamicForm.Helper
+@using DynamicForm.Models
+@using DynamicForm.Services
+@using System.Linq.Expressions
+@using Microsoft.AspNetCore.Components.Rendering
+@using System.Globalization
+@typeparam TItem
+@inherits OwningComponentBase<FormService>
+@inject IRuleEngineService RuleEngineService
+@inject INumberFormatService _numberFormatService
+@inject IAdvancedTableLayoutService TableLayoutService
+
+<EditForm Model="@FormValues"
+          FormName="@GetFormName()"
+          OnValidSubmit="@(() => HandleValidSubmitInternal())">
+    <CustomValidator @ref="_validator" Fields="@FormDefinition.Fields" />
+    <ValidationSummary />
+
+    @if (ShouldRenderVerticalLayout())
+    {
+        <!-- VERTICAL LAYOUT -->
+        @foreach (var field in FormDefinition.Fields.Where(f => !f.IsHidden))
+        {
+            <div class="form-group">
+                <label>@field.Label @(field.IsRequired ? "*" : "")</label>
+
+                @{
+                    var wrapper = new DynamicFieldWrapper(FormValues, field.Name)
+                    {
+                        Options = field.Data ?? new List<SelectListItem>()
+                    };
+                }
+
+                @switch (field.Type)
+                {
+                    case FieldType.Text:
+                        <InputText Value="@wrapper.Value"
+                                   ValueChanged="@(async (value) => await HandleFieldValueChanged(field, value))"
+                                   ValueExpression="@(() => wrapper.Value)"
+                                   class="form-control"
+                                   disabled="@field.IsReadonly" />
+                        break;
+                    case FieldType.Number:
+                        <input type="number"
+                               value="@FormattedNumberValue(field)"
+                               @onchange="@(async (e) => await HandleNumberInputChanged(field, e))"
+                               @oninput="@(async (e) => await ValidateNumberInput(field, e))"
+                               step="@GetStepForField(field)"
+                               min="@field.MinValue"
+                               max="@field.MaxValue"
+                               class="form-control @(GetNumberFieldClass(field))"
+                               disabled="@field.IsReadonly" />
+                        @if (HasNumberError(field))
+                        {
+                            <div class="text-danger small">
+                                Please enter a valid number with up to 2-3 decimal places
+                            </div>
+                        }
+                        break;
+                    case FieldType.Checkbox:
+                        <div class="form-check">
+                            <InputCheckbox TValue="bool"
+                                           Value="@wrapper.BooleanValue"
+                                           ValueChanged="@(async (value) => await HandleFieldValueChanged(field, value))"
+                                           ValueExpression="@(() => wrapper.BooleanValue)"
+                                           class="form-check-input"
+                                           disabled="@field.IsReadonly" />
+                            <label class="form-check-label">@field.Label</label>
+                        </div>
+                        break;
+                    case FieldType.Date:
+                        <InputDate TValue="DateTime?"
+                                   Value="@wrapper.DateValue"
+                                   ValueChanged="@(async (value) => await HandleFieldValueChanged(field, value))"
+                                   ValueExpression="@(() => wrapper.DateValue)"
+                                   class="form-control"
+                                   disabled="@field.IsReadonly" />
+                        break;
+                    case FieldType.DropDown:
+                    case FieldType.CascadingDropDown:
+                        <InputSelect Value="@wrapper.Value"
+                                     ValueChanged="@(async (string value) => await HandleFieldValueChanged(field, value))"
+                                     ValueExpression="@(() => wrapper.Value)"
+                                     class="form-control"
+                                     disabled="@field.IsReadonly">
+                            <option value="">-- Select --</option>
+                            @foreach (var item in wrapper.Options)
+                            {
+                                <option value="@item.Value">@item.Text</option>
+                            }
+                        </InputSelect>
+                        break;
+                }
+
+                <ValidationMessage For="@(() => wrapper.Value)" />
+            </div>
+        }
+    }
+    else
+    {
+        <!-- TABLE/GRID LAYOUT -->
+        @foreach (var table in FormDefinition.Layout?.Tables ?? new List<DynamicTable>())
+        {
+            <div class="card mb-4">
+                @if (!string.IsNullOrEmpty(table.Title))
+                {
+                    <div class="card-header">
+                        <h5>@table.Title</h5>
+                        @if (!string.IsNullOrEmpty(table.Description))
+                        {
+                            <p class="text-muted mb-0">@table.Description</p>
+                        }
+                    </div>
+                }
+                <div class="card-body p-0">
+                    <FormTableRenderer Table="table"
+                                       FormDefinition="FormDefinition"
+                                       FormValues="FormValues"
+                                       OnFieldValueChanged="HandleTableFieldValueChanged" />
+                </div>
+            </div>
+        }
+
+        <!-- Render any fields not in tables (fallback) - Use direct rendering -->
+        @if (HasUnmappedFields())
+        {
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5>Additional Fields</h5>
+                </div>
+                <div class="card-body">
+                    @foreach (var field in GetUnmappedFields())
+                    {
+                        <div class="form-group">
+                            <label>@field.Label @(field.IsRequired ? "*" : "")</label>
+
+                            @{
+                                var wrapper = new DynamicFieldWrapper(FormValues, field.Name)
+                                {
+                                    Options = field.Data ?? new List<SelectListItem>()
+                                };
+                            }
+
+                            @switch (field.Type)
+                            {
+                                case FieldType.Text:
+                                    <InputText Value="@wrapper.Value"
+                                               ValueChanged="@(async (value) => HandleFieldValueChanged(field, value))"
+                                               ValueExpression="@(() => wrapper.Value)"
+                                               class="form-control"
+                                               disabled="@field.IsReadonly" />
+                                    break;
+                                case FieldType.Number:
+                                    <input type="number"
+                                           value="@FormattedNumberValue(field)"
+                                           @onchange="@(async (e) => await HandleNumberInputChanged(field, e))"
+                                           @oninput="@(async (e) => await ValidateNumberInput(field, e))"
+                                           step="@GetStepForField(field)"
+                                           min="@field.MinValue"
+                                           max="@field.MaxValue"
+                                           class="form-control @(GetNumberFieldClass(field))"
+                                           disabled="@field.IsReadonly" />
+                                    @if (HasNumberError(field))
+                                    {
+                                        <div class="text-danger small">
+                                            Please enter a valid number with up to 3 decimal places
+                                        </div>
+                                    }
+                                    break;
+                                case FieldType.Checkbox:
+                                    <div class="form-check">
+                                        <InputCheckbox TValue="bool"
+                                                       Value="@wrapper.BooleanValue"
+                                                       ValueChanged="@(async (value) => await HandleFieldValueChanged(field, value))"
+                                                       ValueExpression="@(() => wrapper.BooleanValue)"
+                                                       class="form-check-input"
+                                                       disabled="@field.IsReadonly" />
+                                        <label class="form-check-label">@field.Label</label>
+                                    </div>
+                                    break;
+                                case FieldType.Date:
+                                    <InputDate TValue="DateTime?"
+                                               Value="@wrapper.DateValue"
+                                               ValueChanged="@(async (value) => await HandleFieldValueChanged(field, value))"
+                                               ValueExpression="@(() => wrapper.DateValue)"
+                                               class="form-control"
+                                               disabled="@field.IsReadonly" />
+                                    break;
+                                case FieldType.DropDown:
+                                case FieldType.CascadingDropDown:
+                                    <InputSelect Value="@wrapper.Value"
+                                                 ValueChanged="@(async (string value) => await HandleFieldValueChanged(field, value))"
+                                                 ValueExpression="@(() => wrapper.Value)"
+                                                 class="form-control"
+                                                 disabled="@field.IsReadonly">
+                                        <option value="">-- Select --</option>
+                                        @foreach (var item in wrapper.Options)
+                                        {
+                                            <option value="@item.Value">@item.Text</option>
+                                        }
+                                    </InputSelect>
+                                    break;
+                            }
+
+                            <ValidationMessage For="@(() => wrapper.Value)" />
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    <button type="submit" class="btn btn-primary">Submit</button>
+</EditForm>
+
+@code {
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+    [Parameter] public TItem FormData { get; set; }
+    [Parameter] public EventCallback<TItem> FormDataChanged { get; set; }
+    [Parameter] public EventCallback<Dictionary<string, object>> OnValidSubmit { get; set; }
+    
+    private CustomValidator _validator;
+    private Dictionary<string, object> FormValues = new();
+    private FormFieldModel WorkingModel;
+    private bool UseDictionaryModel => FormData is Dictionary<string, object>;
+    private Dictionary<string, bool> _numberFieldErrors = new();
+
+    protected override void OnInitialized()
+    {
+        WorkingModel = new FormFieldModel(FormValues);
+        InitializeFormValues();
+        StoreOriginalFieldStates();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Evaluate all rules on initial load
+            await RuleEngineService.EvaluateAllRulesAsync(FormDefinition, FormValues);
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleFieldValueChanged(FormField field, object value)
+    {
+        await UpdateFormValue(field, value);
+        await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+        StateHasChanged();
+    }
+
+    private async Task HandleTableFieldValueChanged(FieldValueChangedEventArgs args)
+    {
+        // This method handles field changes from table layout
+        await HandleFieldValueChanged(args.Field, args.Value);
+    }
+
+    private bool IsFieldInAnyTable(FormField field)
+    {
+        return FormDefinition.Layout?.Tables?.Any(table =>
+            table.TableRows.Any(row =>
+                row.Cells.Any(cell => cell.FieldId == field.Id))) == true;
+    }
+
+    private bool ShouldRenderVerticalLayout()
+    {
+        // Render vertical layout if:
+        // 1. No layout is defined
+        // 2. Layout type is explicitly Vertical
+        // 3. No tables are defined
+        return FormDefinition.Layout == null ||
+               FormDefinition.Layout.Type == LayoutType.Vertical ||
+               FormDefinition.Layout.Tables?.Any() != true;
+    }
+
+    private bool HasUnmappedFields()
+    {
+        return GetUnmappedFields().Any();
+    }
+
+    private List<FormField> GetUnmappedFields()
+    {
+        var fieldsInTables = FormDefinition.Layout?.Tables?
+            .SelectMany(table => table.TableRows?
+                .SelectMany(row => row.Cells?
+                    .Where(cell => !string.IsNullOrEmpty(cell.FieldId))
+                    .Select(cell => cell.FieldId) ?? new List<string>()) ?? new List<string>())
+            .ToList() ?? new List<string>();
+
+        return FormDefinition.Fields
+            .Where(field => !fieldsInTables.Contains(field.Id) && !field.IsHidden)
+            .ToList();
+    }
+
+    private RenderFragment RenderFieldAsVertical(FormField field) => builder =>
+    {
+        var wrapper = new DynamicFieldWrapper(FormValues, field.Name)
+        {
+            Options = field.Data ?? new List<SelectListItem>()
+        };
+
+        switch (field.Type)
+        {
+            case FieldType.Text:
+                builder.OpenComponent<InputText>(0);
+                builder.AddAttribute(1, "Value", wrapper.Value);
+                builder.AddAttribute(2, "ValueChanged",
+                    EventCallback.Factory.Create<string>(this,
+                    async (value) => await HandleFieldValueChanged(field, value)));
+                builder.AddAttribute(3, "ValueExpression",
+                    Expression.Lambda<Func<string>>(Expression.Constant(wrapper.Value)));
+                builder.AddAttribute(4, "class", "form-control");
+                builder.AddAttribute(5, "disabled", field.IsReadonly);
+                builder.CloseComponent();
+                break;
+
+            case FieldType.Number:
+                builder.OpenElement(6, "input");
+                builder.AddAttribute(7, "type", "number");
+                builder.AddAttribute(8, "value", FormattedNumberValue(field));
+                builder.AddAttribute(9, "onchange",
+                    EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await HandleNumberInputChanged(field, e)));
+                builder.AddAttribute(10, "oninput",
+                    EventCallback.Factory.Create<ChangeEventArgs>(this,
+                    async (e) => await ValidateNumberInput(field, e)));
+                builder.AddAttribute(11, "step", GetStepForField(field));
+                builder.AddAttribute(12, "min", field.MinValue);
+                builder.AddAttribute(13, "max", field.MaxValue);
+                builder.AddAttribute(14, "class",
+                    $"form-control {GetNumberFieldClass(field)}");
+                builder.AddAttribute(15, "disabled", field.IsReadonly);
+                builder.CloseElement();
+
+                if (HasNumberError(field))
+                {
+                    builder.OpenElement(16, "div");
+                    builder.AddAttribute(17, "class", "text-danger small");
+                    builder.AddContent(18, "Please enter a valid number with up to 3 decimal places");
+                    builder.CloseElement();
+                }
+                break;
+
+            case FieldType.Checkbox:
+                builder.OpenElement(19, "div");
+                builder.AddAttribute(20, "class", "form-check");
+
+                builder.OpenComponent<InputCheckbox>(21);
+                builder.AddAttribute(22, "Value", wrapper.BooleanValue);
+                builder.AddAttribute(23, "ValueChanged",
+                    EventCallback.Factory.Create<bool>(this,
+                    async (value) => await HandleFieldValueChanged(field, value)));
+                builder.AddAttribute(24, "ValueExpression",
+                    Expression.Lambda<Func<bool>>(Expression.Constant(wrapper.BooleanValue)));
+                builder.AddAttribute(25, "class", "form-check-input");
+                builder.AddAttribute(26, "disabled", field.IsReadonly);
+                builder.CloseComponent();
+
+                builder.OpenElement(27, "label");
+                builder.AddAttribute(28, "class", "form-check-label");
+                builder.AddContent(29, field.Label);
+                builder.CloseElement();
+
+                builder.CloseElement();
+                break;
+
+            case FieldType.Date:
+                builder.OpenComponent<InputDate<DateTime?>>(30);
+                builder.AddAttribute(31, "Value", wrapper.DateValue);
+                builder.AddAttribute(32, "ValueChanged",
+                    EventCallback.Factory.Create<DateTime?>(this,
+                    async (value) => await HandleFieldValueChanged(field, value)));
+                builder.AddAttribute(33, "ValueExpression",
+                    Expression.Lambda<Func<DateTime?>>(Expression.Constant(wrapper.DateValue)));
+                builder.AddAttribute(34, "class", "form-control");
+                builder.AddAttribute(35, "disabled", field.IsReadonly);
+                builder.CloseComponent();
+                break;
+
+            case FieldType.DropDown:
+            case FieldType.CascadingDropDown:
+                builder.OpenComponent<InputSelect<string>>(36);
+                builder.AddAttribute(37, "Value", wrapper.Value);
+                builder.AddAttribute(38, "ValueChanged",
+                    EventCallback.Factory.Create<string>(this,
+                    async (value) => await HandleFieldValueChanged(field, value)));
+                builder.AddAttribute(39, "ValueExpression",
+                    Expression.Lambda<Func<string>>(Expression.Constant(wrapper.Value)));
+                builder.AddAttribute(40, "class", "form-control");
+                builder.AddAttribute(41, "disabled", field.IsReadonly);
+                builder.AddAttribute(42, "ChildContent", (RenderFragment)(selectBuilder =>
+                {
+                    selectBuilder.OpenElement(43, "option");
+                    selectBuilder.AddAttribute(44, "value", "");
+                    selectBuilder.AddContent(45, "-- Select --");
+                    selectBuilder.CloseElement();
+
+                    foreach (var item in wrapper.Options)
+                    {
+                        selectBuilder.OpenElement(46, "option");
+                        selectBuilder.AddAttribute(47, "value", item.Value);
+                        selectBuilder.AddContent(48, item.Text);
+                        selectBuilder.CloseElement();
+                    }
+                }));
+                builder.CloseComponent();
+                break;
+        }
+
+        builder.OpenComponent<ValidationMessage<string>>(49);
+        builder.AddAttribute(50, "For", Expression.Lambda<Func<string>>(Expression.Constant(wrapper.Value)));
+        builder.CloseComponent();
+    };
+
+    private RenderFragment RenderFieldInCell(FormField field, int row, int col)
+    {
+        return builder =>
+        {
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "form-table-field-control");
+
+            var wrapper = new DynamicFieldWrapper(FormValues, field.Name)
+            {
+                Options = field.Data ?? new List<SelectListItem>()
+            };
+
+            switch (field.Type)
+            {
+                case FieldType.Text:
+                    builder.OpenComponent<InputText>(2);
+                    builder.AddAttribute(3, "Value", wrapper.Value);
+                    builder.AddAttribute(4, "ValueChanged",
+                        EventCallback.Factory.Create<string>(this,
+                        async (value) => await HandleFieldValueChanged(field, value)));
+                    builder.AddAttribute(5, "ValueExpression",
+                        Expression.Lambda<Func<string>>(Expression.Constant(wrapper.Value)));
+                    builder.AddAttribute(6, "class", "form-control form-control-sm");
+                    builder.AddAttribute(7, "disabled", field.IsReadonly);
+                    builder.CloseComponent();
+                    break;
+
+                case FieldType.Number:
+                    builder.OpenElement(8, "input");
+                    builder.AddAttribute(9, "type", "number");
+                    builder.AddAttribute(10, "value", FormattedNumberValue(field));
+                    builder.AddAttribute(11, "onchange",
+                        EventCallback.Factory.Create<ChangeEventArgs>(this,
+                        async (e) => await HandleNumberInputChanged(field, e)));
+                    builder.AddAttribute(12, "oninput",
+                        EventCallback.Factory.Create<ChangeEventArgs>(this,
+                        async (e) => await ValidateNumberInput(field, e)));
+                    builder.AddAttribute(13, "step", GetStepForField(field));
+                    builder.AddAttribute(14, "min", field.MinValue);
+                    builder.AddAttribute(15, "max", field.MaxValue);
+                    builder.AddAttribute(16, "class",
+                        $"form-control form-control-sm {GetNumberFieldClass(field)}");
+                    builder.AddAttribute(17, "disabled", field.IsReadonly);
+                    builder.CloseElement();
+
+                    if (HasNumberError(field))
+                    {
+                        builder.OpenElement(18, "div");
+                        builder.AddAttribute(19, "class", "text-danger small");
+                        builder.AddContent(20, "Please enter a valid number");
+                        builder.CloseElement();
+                    }
+                    break;
+
+                case FieldType.Checkbox:
+                    builder.OpenComponent<InputCheckbox>(21);
+                    builder.AddAttribute(22, "Value", wrapper.BooleanValue);
+                    builder.AddAttribute(23, "ValueChanged",
+                        EventCallback.Factory.Create<bool>(this,
+                        async (value) => await HandleFieldValueChanged(field, value)));
+                    builder.AddAttribute(24, "ValueExpression",
+                        Expression.Lambda<Func<bool>>(Expression.Constant(wrapper.BooleanValue)));
+                    builder.AddAttribute(25, "class", "form-check-input");
+                    builder.AddAttribute(26, "disabled", field.IsReadonly);
+                    builder.CloseComponent();
+                    break;
+
+                case FieldType.Date:
+                    builder.OpenComponent<InputDate<DateTime?>>(27);
+                    builder.AddAttribute(28, "Value", wrapper.DateValue);
+                    builder.AddAttribute(29, "ValueChanged",
+                        EventCallback.Factory.Create<DateTime?>(this,
+                        async (value) => await HandleFieldValueChanged(field, value)));
+                    builder.AddAttribute(30, "ValueExpression",
+                        Expression.Lambda<Func<DateTime?>>(Expression.Constant(wrapper.DateValue)));
+                    builder.AddAttribute(31, "class", "form-control form-control-sm");
+                    builder.AddAttribute(32, "disabled", field.IsReadonly);
+                    builder.CloseComponent();
+                    break;
+
+                case FieldType.DropDown:
+                case FieldType.CascadingDropDown:
+                    builder.OpenComponent<InputSelect<string>>(33);
+                    builder.AddAttribute(34, "Value", wrapper.Value);
+                    builder.AddAttribute(35, "ValueChanged",
+                        EventCallback.Factory.Create<string>(this,
+                        async (value) => await HandleFieldValueChanged(field, value)));
+                    builder.AddAttribute(36, "ValueExpression",
+                        Expression.Lambda<Func<string>>(Expression.Constant(wrapper.Value)));
+                    builder.AddAttribute(37, "class", "form-control form-control-sm");
+                    builder.AddAttribute(38, "disabled", field.IsReadonly);
+                    builder.AddAttribute(39, "ChildContent", (RenderFragment)(selectBuilder =>
+                    {
+                        selectBuilder.OpenElement(40, "option");
+                        selectBuilder.AddAttribute(41, "value", "");
+                        selectBuilder.AddContent(42, "-- Select --");
+                        selectBuilder.CloseElement();
+
+                        foreach (var item in wrapper.Options)
+                        {
+                            selectBuilder.OpenElement(43, "option");
+                            selectBuilder.AddAttribute(44, "value", item.Value);
+                            selectBuilder.AddContent(45, item.Text);
+                            selectBuilder.CloseElement();
+                        }
+                    }));
+                    builder.CloseComponent();
+                    break;
+            }
+
+            builder.CloseElement();
+        };
+    }
+    
+    private void InitializeFormValues()
+    {
+        foreach (var field in FormDefinition.Fields)
+        {
+            if (!FormValues.ContainsKey(field.Name))
+            {
+                FormValues[field.Name] = GetInitialValue(field);
+            }
+        }
+    }
+
+    private string FormattedNumberValue(FormField field)
+    {
+        if (FormValues.TryGetValue(field.Name, out var value) && value != null)
+        {
+            if (decimal.TryParse(value.ToString(), out decimal decimalValue))
+            {
+                // Return raw value for input (no formatting)
+                //return decimalValue.ToString(CultureInfo.InvariantCulture);
+                return decimalValue.ToString($"F{3}", System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+        return string.Empty;
+    }
+
+    private string GetStepForField(FormField field)
+    {
+        return field.AllowDecimal ? "any" : "1";
+    }
+
+    private async Task HandleNumberInputChanged(FormField field, ChangeEventArgs e)
+    {
+        var inputValue = e.Value?.ToString();
+
+        if (string.IsNullOrEmpty(inputValue))
+        {
+            FormValues[field.Name] = null;
+            await FormDataChanged.InvokeAsync(FormData);
+            await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+            return;
+        }
+
+        if (decimal.TryParse(inputValue, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal decimalValue))
+        {
+            // Apply min/max constraints
+            if (field.MinValue.HasValue && decimalValue < field.MinValue.Value)
+                decimalValue = field.MinValue.Value;
+            if (field.MaxValue.HasValue && decimalValue > field.MaxValue.Value)
+                decimalValue = field.MaxValue.Value;
+
+            // Store the raw decimal value
+            FormValues[field.Name] = decimalValue;
+
+            // Update bound data
+            await UpdateBoundData(field, decimalValue);
+
+            // Evaluate rules
+            await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+        }
+    }
+
+    private async Task UpdateBoundData(FormField field, decimal value)
+    {
+        if (FormData != null)
+        {
+            if (FormData is Dictionary<string, object> dict)
+            {
+                dict[field.Name] = value;
+            }
+            else
+            {
+                var prop = typeof(TItem).GetProperty(field.Name);
+                if (prop != null)
+                {
+                    // Convert to the appropriate type
+                    object convertedValue = prop.PropertyType == typeof(decimal) ? value :
+                                          prop.PropertyType == typeof(double) ? (double)value :
+                                          prop.PropertyType == typeof(float) ? (float)value :
+                                          prop.PropertyType == typeof(int) ? (int)Math.Round(value) :
+                                          (object)value;
+
+                    prop.SetValue(FormData, convertedValue);
+                }
+            }
+            await FormDataChanged.InvokeAsync(FormData);
+        }
+    }
+
+    // Helper method to get display value for preview or labels
+    private string GetFormattedDisplayValue(FormField field)
+    {
+        if (FormValues.TryGetValue(field.Name, out var value) && value != null)
+        {
+            if (decimal.TryParse(value.ToString(), out decimal decimalValue))
+            {
+                return FormatDecimalForDisplay(decimalValue, field.DecimalPlaces);
+            }
+            return value.ToString();
+        }
+        return string.Empty;
+    }
+
+    private string FormatDecimalForDisplay(decimal value, int? decimalPlaces)
+    {
+        return value.ToString($"F{decimalPlaces}", CultureInfo.InvariantCulture);
+    }
+
+    private async Task ValidateNumberInput(FormField field, ChangeEventArgs e)
+    {
+        var inputValue = e.Value?.ToString();
+
+        if (!string.IsNullOrEmpty(inputValue))
+        {
+            var isValid = _numberFormatService.IsValidDecimal(inputValue, 3);
+            _numberFieldErrors[field.Name] = !isValid;
+
+            if (!isValid)
+            {
+                StateHasChanged();
+            }
+        }
+        else
+        {
+            _numberFieldErrors.Remove(field.Name);
+        }
+    }
+
+    private bool HasNumberError(FormField field)
+    {
+        return _numberFieldErrors.ContainsKey(field.Name) && _numberFieldErrors[field.Name];
+    }
+
+    private string GetNumberFieldClass(FormField field)
+    {
+        return HasNumberError(field) ? "is-invalid" : "";
+    }
+
+    private void StoreOriginalFieldStates()
+    {
+        foreach (var field in FormDefinition.Fields)
+        {
+            field.OriginalIsHidden = field.IsHidden;
+            field.OriginalIsReadonly = field.IsReadonly;
+            field.OriginalIsRequired = field.IsRequired;
+            field.OriginalValue = FormValues[field.Name];
+        }
+    }
+    
+    private async Task HandleNumberValueChanged(FormField field, ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), out decimal decimalValue))
+        {
+            // Apply decimal places formatting
+            var formattedValue = FormatDecimalValue(decimalValue, field.DecimalPlaces ?? 2);
+            await HandleFieldValueChanged(field, formattedValue);
+        }
+    }
+
+    private string FormatDecimalValue(decimal value, int decimalPlaces)
+    {
+        return value.ToString($"F{decimalPlaces}", System.Globalization.CultureInfo.InvariantCulture);
+    }
+    
+    private async Task UpdateFormValue(FormField field, object value)
+    {
+        FormValues[field.Name] = value;
+
+        if (FormData != null)
+        {
+            if (FormData is Dictionary<string, object> dict)
+            {
+                dict[field.Name] = value;
+            }
+            else
+            {
+                var prop = typeof(TItem).GetProperty(field.Name);
+                if (prop != null && value != null)
+                {
+                    var convertedValue = Convert.ChangeType(value, prop.PropertyType);
+                    prop.SetValue(FormData, convertedValue);
+                }
+            }
+            await FormDataChanged.InvokeAsync(FormData);
+        }
+    }
+
+    private string GetFormName()
+    {
+        // Use form ID if available, otherwise generate a unique name
+        return !string.IsNullOrEmpty(FormDefinition?.Id)
+            ? $"form_{FormDefinition.Id}"
+            : $"form_{Guid.NewGuid()}";
+    }
+
+    private object GetInitialValue(FormField field)
+    {
+        // Try to get value from FormData if it's a dictionary
+        if (FormData is Dictionary<string, object> dict && dict.TryGetValue(field.Name, out var value))
+        {
+            return value;
+        }
+
+        // Try to get value from FormData properties if it's a regular object
+        var prop = typeof(TItem).GetProperty(field.Name);
+        if (prop != null && FormData != null)
+        {
+            return prop.GetValue(FormData);
+        }
+
+        // Fall back to default value
+        return field.DefaultValue ?? GetDefaultValue(field.Type);
+    }
+
+    private object GetDefaultValue(FieldType type)
+    {
+        return type switch
+        {
+            FieldType.Number => 0,
+            FieldType.Checkbox => false,
+            FieldType.Date => DateTime.Today,
+            _ => string.Empty
+        };
+    }
+
+    private async Task UpdateDropdownOptions(FormField sourceField, FormField targetField, string sourceValue)
+    {
+        // For cascading dropdowns, check if we have predefined options
+        if (targetField.CascadingData != null &&
+            targetField.CascadingData.TryGetValue(sourceValue, out var options))
+        {
+            targetField.Data = options;
+        }
+        else
+        {
+            // Fallback to empty options if no predefined ones exist
+            targetField.Data = new List<SelectListItem>();
+        }
+
+        // Reset the current value when options change
+        FormValues[targetField.Name] = null;
+    }
+    
+    private async Task HandleCascadingChange(FormField field, string value)
+    {
+        await UpdateFormValue(field, value);
+        await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+        StateHasChanged();
+    }
+
+    private async Task HandleValidSubmitInternal()
+    {
+        Console.WriteLine("Form submitted successfully!");
+
+        // Validate all fields before submission
+        _validator?.Validate();
+
+        // Create a copy of the current form values
+        var submittedValues = new Dictionary<string, object>();
+        foreach (var kvp in FormValues)
+        {
+            submittedValues[kvp.Key] = kvp.Value;
+        }
+
+        // Apply any final formatting to number fields
+        foreach (var field in FormDefinition.Fields.Where(f => f.Type == FieldType.Number))
+        {
+            if (submittedValues.TryGetValue(field.Name, out var value) && value != null)
+            {
+                if (decimal.TryParse(value.ToString(), out decimal decimalValue))
+                {
+                    // Format the number with proper decimal places
+                    submittedValues[field.Name] = _numberFormatService.FormatDecimalForDisplay(decimalValue, field.DecimalPlaces ?? 2);
+                }
+            }
+        }
+
+        Console.WriteLine($"Submitting form with {submittedValues.Count} values:");
+        foreach (var kvp in submittedValues)
+        {
+            Console.WriteLine($"  {kvp.Key}: {kvp.Value} (Type: {kvp.Value?.GetType().Name})");
+        }
+
+        // Invoke the parent's handler with the formatted values
+        await OnValidSubmit.InvokeAsync(submittedValues);
+    }
+
+    private Dictionary<string, object> ConvertToDictionary(TItem obj)
+    {
+        var dict = new Dictionary<string, object>();
+        if (obj != null)
+        {
+            foreach (var prop in typeof(TItem).GetProperties())
+            {
+                dict[prop.Name] = prop.GetValue(obj);
+            }
+        }
+        return dict;
+    }    
+}
