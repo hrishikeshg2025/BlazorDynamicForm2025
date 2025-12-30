@@ -1,0 +1,250 @@
+﻿@using DynamicForm.Models
+@using DynamicForm.Services
+@inject IFileImportService FileImportService
+@inject IJSRuntime JSRuntime
+<div class="file-import-component">
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">
+                <i class="fas fa-file-import mr-2"></i>Import Data from File
+                @if (SelectedMapping != null)
+                {
+                    <span class="badge badge-secondary ml-2">@SelectedMapping.Name</span>
+                }
+            </h6>
+        </div>
+
+        <div class="card-body">
+            <!-- Mapping Info -->
+            @if (SelectedMapping != null)
+            {
+                <div class="alert alert-info mb-3">
+                    <strong>@SelectedMapping.Name</strong>
+                    @if (!string.IsNullOrEmpty(SelectedMapping.Description))
+                    {
+                        <br />
+                
+                        <small>@SelectedMapping.Description</small>
+                    }
+                    <div class="mt-2">
+                        <small>
+                            <i class="fas fa-columns"></i>
+                            @SelectedMapping.ColumnMappings.Count(m => !string.IsNullOrEmpty(m.FieldId))
+                            columns mapped
+                        </small>
+                    </div>
+                </div>
+            }
+
+            <!-- File Upload -->
+            <div class="form-group">
+                <label>Select @(SelectedMapping?.FileType.ToString() ?? "CSV/Excel") File</label>
+                <InputFile OnChange="OnImportFileUpload"
+                           accept="@GetAcceptType()"
+                           class="form-control" />
+                <small class="form-text text-muted">
+                    File should match the column structure of the selected mapping
+                </small>
+            </div>
+
+            @if (importFile != null)
+            {
+                <div class="alert alert-secondary mt-2">
+                    <i class="fas fa-file mr-1"></i> @importFile.Name
+                    (@(importFile.Size / 1024) KB)
+                    <button @onclick="ClearFile" class="btn btn-sm btn-outline-secondary float-right">
+                        Clear
+                    </button>
+                </div>
+
+                <button @onclick="ImportFile" class="btn btn-primary mt-2"
+                        disabled="@(SelectedMapping == null || importFile == null)">
+                    <i class="fas fa-file-import"></i> Import Data
+                </button>
+            }
+
+            @if (importResult != null)
+            {
+                <div class="mt-4">
+                    <div class="card @(importResult.Success ? "border-success" : "border-danger")">
+                        <div class="card-header @(importResult.Success ? "bg-success text-white" : "bg-danger text-white")">
+                            <h6 class="mb-0">Import Results</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert @(importResult.Success ? "alert-success" : "alert-danger")">
+                                <strong>@importResult.Message</strong>
+                                <br />
+                                Processed: @importResult.RowsProcessed |
+                                Imported: @importResult.RowsImported |
+                                Failed: @importResult.RowsFailed
+                            </div>
+
+                            @if (importResult.Errors?.Any() == true)
+                            {
+                                <div class="mt-3">
+                                    <h6>Errors:</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-bordered">
+                                            <thead>
+                                                <tr>
+                                                    <th>Row</th>
+                                                    <th>Column</th>
+                                                    <th>Value</th>
+                                                    <th>Error</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var error in importResult.Errors)
+                                                {
+                                                    <tr>
+                                                        <td>@error.RowNumber</td>
+                                                        <td>@error.Column</td>
+                                                        <td>@error.Value</td>
+                                                        <td class="text-danger">@error.Error</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (importResult.Success && importResult.ImportedData?.Any() == true)
+                            {
+                                <div class="mt-3">
+                                    <h6>Imported Data Preview:</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-bordered">
+                                            <thead>
+                                                <tr>
+                                                    @foreach (var key in importResult.ImportedData.Keys)
+                                                    {
+                                                        <th>@key</th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    @foreach (var value in importResult.ImportedData.Values)
+                                                    {
+                                                        <td>@value</td>
+                                                    }
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <button @onclick="ApplyImportedData" class="btn btn-success mt-2">
+                                        <i class="fas fa-check"></i> Apply to Form
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+    [Parameter] public Dictionary<string, object> FormValues { get; set; }
+    [Parameter] public EventCallback<Dictionary<string, object>> OnDataImported { get; set; }
+    [Parameter] public EventCallback OnCreateNewMapping { get; set; }
+    [Parameter] public string SelectedMappingId { get; set; }
+
+    private bool showImportSection = false;
+    private FileImportMapping availableMappings = new();
+    private IBrowserFile importFile;
+    private FileImportResult importResult;
+
+    private FileImportMapping SelectedMapping =>
+       FormDefinition?.ImportMappings?.FirstOrDefault(m => m.Id == SelectedMappingId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMappings();
+    }  
+
+    private string GetAcceptType()
+    {
+        return SelectedMapping?.FileType == ImportFileType.Excel ? ".xlsx,.xls" : ".csv";
+    }
+    private async Task OnMappingSelected(ChangeEventArgs e)
+    {
+        if (e.Value?.ToString() == "new")
+        {
+            // Trigger parent to open mapping modal
+            await OnCreateNewMapping.InvokeAsync();
+            SelectedMappingId = null;
+        }
+    }
+
+    private async Task LoadMappings()
+    {
+        if (FormDefinition != null)
+        {            
+            availableMappings = FormDefinition.ImportMappings?.FirstOrDefault(m => m.Id == SelectedMappingId);           
+        }        
+    }
+
+    private void ToggleImportSection()
+    {
+        showImportSection = !showImportSection;
+    }
+
+    private void OnImportFileUpload(InputFileChangeEventArgs e)
+    {
+        importFile = e.File;
+        importResult = null;
+        StateHasChanged();
+    }
+
+    private async Task ImportFile()
+    {
+        if (string.IsNullOrEmpty(SelectedMappingId) || importFile == null)
+            return;
+
+        var mapping = availableMappings;// (m => m.Id == SelectedMappingId);
+        if (mapping == null)
+            return;
+
+        try
+        {
+            using var stream = importFile.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            importResult = await FileImportService.ImportDataAsync(FormDefinition, SelectedMappingId, stream);
+        }
+        catch (Exception ex)
+        {
+            importResult = new FileImportResult
+            {
+                Success = false,
+                Message = $"Import failed: {ex.Message}"
+            };
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ApplyImportedData()
+    {
+        if (importResult?.Success == true && importResult.ImportedData?.Any() == true)
+        {
+            await OnDataImported.InvokeAsync(importResult.ImportedData);
+
+            // Show success message
+            await JSRuntime.InvokeVoidAsync("alert", "Data imported successfully!");
+
+            // Reset form
+            ClearFile();
+        }
+    }
+
+    private void ClearFile()
+    {
+        importFile = null;
+        importResult = null;
+        StateHasChanged();
+    }
+}

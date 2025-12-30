@@ -241,8 +241,7 @@ public class AdvancedTableLayoutService : IAdvancedTableLayoutService
     private void ResizeHeaders(DynamicTable table, int newColumns)
     {
         // Ensure Headers list exists
-        if (table.Headers == null)
-            table.Headers = new List<TableHeader>();
+        table.Headers ??= new List<TableHeader>();
 
         // Add missing headers
         while (table.Headers.Count < newColumns)
@@ -264,11 +263,8 @@ public class AdvancedTableLayoutService : IAdvancedTableLayoutService
     private void ResizeFooter(DynamicTable table, int newColumns)
     {
         // Ensure Footer and Cells exist
-        if (table.Footer == null)
-            table.Footer = new TableFooter();
-
-        if (table.Footer.Cells == null)
-            table.Footer.Cells = new List<TableCell>();
+        table.Footer ??= new TableFooter();
+        table.Footer.Cells ??= new List<TableCell>();
 
         // Add missing footer cells
         while (table.Footer.Cells.Count < newColumns)

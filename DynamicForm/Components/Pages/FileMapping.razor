@@ -1,0 +1,493 @@
+﻿@* Components/InlineImportMapping.razor *@
+@using CsvHelper
+@using CsvHelper.Configuration
+@using DynamicForm.Models
+@using DynamicForm.Services
+@using System.Globalization
+@using NPOI.HSSF.UserModel
+@using NPOI.SS.UserModel
+@using NPOI.XSSF.UserModel
+
+<div class="inline-import-mapping">
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="fas fa-file-import mr-2"></i>File Import Configuration
+                @if (CurrentMapping != null)
+                {
+                    <span class="badge badge-secondary ml-2">@CurrentMapping.Name</span>
+                }
+            </h5>
+            <button @onclick="ToggleMappingPanel" class="btn btn-sm @(showMappingPanel ? "btn-secondary" : "btn-outline-secondary")">
+                @(showMappingPanel ? "Hide" : "Configure")
+            </button>
+        </div>
+        
+        @if (showMappingPanel)
+        {
+            <div class="card-body">
+                <!-- Mapping Selection/Management -->
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <div class="form-group">
+                            <label>Select or Create Mapping</label>
+                            <div class="input-group">
+                                <select @onchange="OnMappingSelected" class="form-control">
+                                    <option value="">-- Create New Mapping --</option>
+                                    @foreach (var mapping in FormDefinition.ImportMappings)
+                                    {
+                                        <option value="@mapping.Id">@mapping.Name (@mapping.FileType)</option>
+                                    }
+                                </select>
+                                <div class="input-group-append">
+                                    @if (CurrentMapping != null && !string.IsNullOrEmpty(CurrentMapping.Id))
+                                    {
+                                        <button @onclick="DeleteCurrentMapping" class="btn btn-outline-danger" 
+                                                title="Delete this mapping">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>File Type</label>
+                            <select @bind="CurrentMapping.FileType" class="form-control">
+                                <option value="CSV">CSV</option>
+                                <option value="Excel">Excel</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Mapping Details -->
+                @if (CurrentMapping != null)
+                {
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <div class="form-group">
+                                <label>Mapping Name *</label>
+                                <input @bind="CurrentMapping.Name" @bind:event="oninput" 
+                                       class="form-control" placeholder="e.g., Employee Data Import" />
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label>Description</label>
+                        <textarea @bind="CurrentMapping.Description" @bind:event="oninput" 
+                                  class="form-control" rows="2" placeholder="Describe what this mapping is for..."></textarea>
+                    </div>
+                    
+                    <!-- File Upload for Mapping -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">Upload Sample File to Map Columns</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <InputFile OnChange="OnFileUpload" 
+                                          accept="@GetFileAcceptType()" 
+                                          class="form-control-file" />
+                                <small class="form-text text-muted">
+                                    Upload a sample file to see its structure
+                                </small>
+                            </div>
+                            
+                            @if (uploadedFile != null)
+                            {
+                                <div class="alert alert-info mt-2">
+                                    <i class="fas fa-file mr-1"></i> @uploadedFile.Name 
+                                    <button @onclick="ClearUploadedFile" class="btn btn-sm btn-outline-secondary float-right">
+                                        Clear
+                                    </button>
+                                </div>
+                            }
+                            
+                            @if (fileColumns?.Any() == true)
+                            {
+                                <div class="mt-3">
+                                    <h6>File Columns (@fileColumns.Count):</h6>
+                                    <div class="d-flex flex-wrap gap-2 mb-3">
+                                        @foreach (var column in fileColumns)
+                                        {
+                                            <span class="badge badge-info">@column</span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    
+                    <!-- Column Mappings Table -->
+                    <div class="card">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">Column Mappings</h6>
+                            <button @onclick="AddColumnMapping" class="btn btn-sm btn-primary"
+                                    disabled="@(fileColumns?.Any() != true)">
+                                <i class="fas fa-plus"></i> Add Mapping
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            @if (CurrentMapping.ColumnMappings.Any())
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th width="35%">File Column</th>
+                                                <th width="45%">Form Field</th>
+                                                <th width="20%" class="text-center">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var mapping in CurrentMapping.ColumnMappings)
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        <select @bind="mapping.FileColumnName" 
+                                                                class="form-control form-control-sm">
+                                                            <option value="">-- Select Column --</option>
+                                                            @foreach (var column in fileColumns)
+                                                            {
+                                                                <option value="@column">@column</option>
+                                                            }
+                                                        </select>
+                                                    </td>
+                                                    <td>
+                                                        <select @bind="mapping.FieldId" 
+                                                                class="form-control form-control-sm">
+                                                            <option value="">-- Select Field --</option>
+                                                            @foreach (var field in FormDefinition.Fields)
+                                                            {
+                                                                <option value="@field.Id">@field.Label</option>
+                                                            }
+                                                        </select>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        <button @onclick="@(() => RemoveColumnMapping(mapping))" 
+                                                                class="btn btn-sm btn-outline-danger">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                <div class="mt-2 text-right">
+                                    <small class="text-muted">
+                                        @CurrentMapping.ColumnMappings.Count(m => !string.IsNullOrEmpty(m.FieldId)) 
+                                        of @CurrentMapping.ColumnMappings.Count mappings configured
+                                    </small>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-center py-3 text-muted">
+                                    <i class="fas fa-columns fa-2x mb-2"></i>
+                                    <p>No column mappings yet. Upload a file and click "Add Mapping" to start.</p>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    
+                    <!-- Save/Cancel Buttons -->
+                    <div class="mt-3 d-flex justify-content-between">
+                        <div>
+                            <button @onclick="SaveMapping" class="btn btn-primary"
+                                    disabled="@(!CanSaveMapping())">
+                                <i class="fas fa-save"></i> Save Mapping
+                            </button>
+                            <button @onclick="CancelEditing" class="btn btn-secondary ml-2">
+                                Cancel
+                            </button>
+                        </div>
+                        
+                        @if (CurrentMapping.ColumnMappings.Any())
+                        {
+                            <div class="text-right">
+                                <small class="text-success">
+                                    <i class="fas fa-check-circle"></i> Ready for import
+                                </small>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public FormDefinition FormDefinition { get; set; }
+    [Parameter] public EventCallback OnMappingChanged { get; set; }
+
+    private bool showMappingPanel = false;
+    private FileImportMapping CurrentMapping = new();
+    private string selectedMappingId;
+
+    private List<string> fileColumns = new();
+    private IBrowserFile uploadedFile;
+
+    protected override void OnInitialized()
+    {
+        // Select first mapping if exists
+        if (FormDefinition.ImportMappings.Any())
+        {
+            CurrentMapping = FormDefinition.ImportMappings.First();
+            selectedMappingId = CurrentMapping.Id;
+        }
+        else
+        {
+            CreateNewMapping();
+        }
+    }
+
+    private void CreateNewMapping()
+    {
+        CurrentMapping = new FileImportMapping
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = $"Import Mapping {FormDefinition.ImportMappings.Count + 1}",
+            FileType = ImportFileType.CSV,
+            FormDefinitionId = FormDefinition.Id
+        };
+        selectedMappingId = CurrentMapping.Id;
+    }
+
+    private void OnMappingSelected(ChangeEventArgs e)
+    {
+        var newMappingId = e.Value?.ToString();
+        selectedMappingId = newMappingId;
+
+        if (string.IsNullOrEmpty(newMappingId))
+        {
+            CreateNewMapping();
+        }
+        else
+        {
+            var existing = FormDefinition.ImportMappings.FirstOrDefault(m => m.Id == newMappingId);
+            if (existing != null)
+            {
+                CurrentMapping = existing;
+                selectedMappingId = existing.Id;
+            }
+        }
+        
+        StateHasChanged();
+    }
+    
+    private string GetFileAcceptType()
+    {
+        return CurrentMapping.FileType == ImportFileType.CSV ? ".csv" : ".xlsx,.xls";
+    }
+    
+    private async Task OnFileUpload(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        
+        uploadedFile = e.File;
+        
+        try
+        {
+            await using var sourceStream = uploadedFile.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            var fileBytes = new byte[sourceStream.Length];
+            await sourceStream.ReadAsync(fileBytes);
+            
+            // Process file based on type
+            if (CurrentMapping.FileType == ImportFileType.CSV)
+            {
+                fileColumns = await ProcessCsvBytes(fileBytes);
+            }
+            else
+            {
+                fileColumns = await ProcessExcelBytes(fileBytes);
+            }
+            
+            // Clear existing mappings that reference columns not in the new file
+            if (CurrentMapping.ColumnMappings.Any())
+            {
+                var invalidMappings = CurrentMapping.ColumnMappings
+                    .Where(m => !string.IsNullOrEmpty(m.FileColumnName) && 
+                                !fileColumns.Contains(m.FileColumnName))
+                    .ToList();
+                
+                foreach (var mapping in invalidMappings)
+                {
+                    CurrentMapping.ColumnMappings.Remove(mapping);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error reading file: {ex.Message}");
+            fileColumns.Clear();
+        }
+        
+        StateHasChanged();
+    }
+    
+    private async Task<List<string>> ProcessCsvBytes(byte[] fileBytes)
+    {
+        using var stream = new MemoryStream(fileBytes);
+        using var reader = new StreamReader(stream);
+        
+        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+        {
+            PrepareHeaderForMatch = args => args.Header.ToLower(),
+        };
+        
+        using var csv = new CsvReader(reader, config);
+        if (await csv.ReadAsync())
+        {
+            csv.ReadHeader();
+            return csv.HeaderRecord?.ToList() ?? new List<string>();
+        }
+        
+        return new List<string>();
+    }
+    
+    private async Task<List<string>> ProcessExcelBytes(byte[] fileBytes)
+    {
+        try
+        {
+            using var stream = new MemoryStream(fileBytes);
+            
+            IWorkbook workbook;
+            if (fileBytes.Length >= 4 && 
+                fileBytes[0] == 0xD0 && fileBytes[1] == 0xCF && 
+                fileBytes[2] == 0x11 && fileBytes[3] == 0xE0)
+            {
+                workbook = new HSSFWorkbook(stream);
+            }
+            else
+            {
+                workbook = new XSSFWorkbook(stream);
+            }
+            
+            var sheet = workbook.GetSheetAt(0);
+            var headerRow = sheet.GetRow(0);
+            var columns = new List<string>();
+            
+            if (headerRow != null)
+            {
+                for (int i = 0; i < headerRow.LastCellNum; i++)
+                {
+                    var cell = headerRow.GetCell(i);
+                    columns.Add(cell?.ToString()?.Trim() ?? $"Column{i + 1}");
+                }
+            }
+            
+            workbook.Close();
+            return columns;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Excel error: {ex.Message}");
+            return new List<string>();
+        }
+    }
+    
+    private void ClearUploadedFile()
+    {
+        uploadedFile = null;
+        fileColumns.Clear();
+        StateHasChanged();
+    }
+    
+    private void AddColumnMapping()
+    {
+        if (fileColumns.Any())
+        {
+            CurrentMapping.ColumnMappings.Add(new ColumnMapping());
+            StateHasChanged();
+        }
+    }
+    
+    private void RemoveColumnMapping(ColumnMapping mapping)
+    {
+        CurrentMapping.ColumnMappings.Remove(mapping);
+        StateHasChanged();
+    }
+    
+    private bool CanSaveMapping()
+    {
+        if (string.IsNullOrWhiteSpace(CurrentMapping.Name))
+            return false;
+        
+        if (!CurrentMapping.ColumnMappings.Any())
+            return false;
+        
+        // Check that all mappings have both column and field
+        return CurrentMapping.ColumnMappings.All(m => 
+            !string.IsNullOrWhiteSpace(m.FileColumnName) && 
+            !string.IsNullOrWhiteSpace(m.FieldId));
+    }
+    
+    private void SaveMapping()
+    {
+        if (!CanSaveMapping()) return;
+        
+        // Update or add to form definition
+        CurrentMapping.FormDefinitionId = FormDefinition.Id;
+        
+        var existingIndex = FormDefinition.ImportMappings
+            .FindIndex(m => m.Id == CurrentMapping.Id);
+        
+        if (existingIndex >= 0)
+        {
+            FormDefinition.ImportMappings[existingIndex] = CurrentMapping;
+        }
+        else
+        {
+            FormDefinition.ImportMappings.Add(CurrentMapping);
+        }
+        
+        // Set as selected mapping
+        FormDefinition.SelectedMappingId = CurrentMapping.Id;
+        
+        // Notify parent
+        OnMappingChanged.InvokeAsync();
+        
+        // Collapse panel after saving
+        showMappingPanel = false;
+        StateHasChanged();
+    }
+    
+    private void CancelEditing()
+    {
+        showMappingPanel = false;
+        StateHasChanged();
+    }
+    
+    private void DeleteCurrentMapping()
+    {
+        if (CurrentMapping != null && !string.IsNullOrEmpty(CurrentMapping.Id))
+        {
+            FormDefinition.ImportMappings.RemoveAll(m => m.Id == CurrentMapping.Id);
+            
+            // Select another mapping or create new
+            if (FormDefinition.ImportMappings.Any())
+            {
+                CurrentMapping = FormDefinition.ImportMappings.First();
+                selectedMappingId = CurrentMapping.Id;
+            }
+            else
+            {
+                CreateNewMapping();
+            }
+            
+            OnMappingChanged.InvokeAsync();
+            StateHasChanged();
+        }
+    }
+    
+    private void ToggleMappingPanel()
+    {
+        showMappingPanel = !showMappingPanel;
+    }
+}

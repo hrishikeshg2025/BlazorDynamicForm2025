@@ -16,6 +16,13 @@
           OnValidSubmit="@(() => HandleValidSubmitInternal())">
     <CustomValidator @ref="_validator" Fields="@FormDefinition.Fields" />
     <ValidationSummary />
+    @if (ShouldShowImport())
+    {
+        <FileImport FormDefinition="FormDefinition"
+                    FormValues="FormValues"
+                    SelectedMappingId="@GetSelectedMappingId()"
+                    OnDataImported="HandleImportedData" />
+    }
 
     @if (ShouldRenderVerticalLayout())
     {
@@ -218,7 +225,7 @@
     [Parameter] public TItem FormData { get; set; }
     [Parameter] public EventCallback<TItem> FormDataChanged { get; set; }
     [Parameter] public EventCallback<Dictionary<string, object>> OnValidSubmit { get; set; }
-    
+
     private CustomValidator _validator;
     private Dictionary<string, object> FormValues = new();
     private FormFieldModel WorkingModel;
@@ -242,6 +249,52 @@
         }
     }
 
+    private bool ShouldShowImport()
+    {
+        return FormDefinition?.ImportMappings?.Any(m =>
+            m.ColumnMappings?.Any(c => !string.IsNullOrEmpty(c.FieldId)) == true) ?? false;
+    }
+
+    private string GetSelectedMappingId()
+    {
+        if (!string.IsNullOrEmpty(FormDefinition.SelectedMappingId))
+        {
+            var mapping = FormDefinition.ImportMappings?.FirstOrDefault(m => m.Id == FormDefinition.SelectedMappingId);
+            if (mapping?.ColumnMappings?.Any(c => !string.IsNullOrEmpty(c.FieldId)) == true)
+            {
+                return mapping.Id;
+            }
+        }
+
+        // Find first mapping with column mappings
+        var firstValid = FormDefinition.ImportMappings?.FirstOrDefault(m =>
+            m.ColumnMappings?.Any(c => !string.IsNullOrEmpty(c.FieldId)) == true);
+
+        return firstValid?.Id;
+    }
+    private async Task HandleImportedData(Dictionary<string, object> importedData)
+    {
+        foreach (var kvp in importedData)
+        {
+            if (FormValues.ContainsKey(kvp.Key))
+            {
+                FormValues[kvp.Key] = kvp.Value;
+            }
+            else
+            {
+                FormValues.Add(kvp.Key, kvp.Value);
+            }
+
+            // Trigger rule engine
+            var field = FormDefinition.Fields.FirstOrDefault(f => f.Name == kvp.Key);
+            if (field != null)
+            {
+                await RuleEngineService.EvaluateRulesAsync(FormDefinition, FormValues, field.Id);
+            }
+        }
+
+        StateHasChanged();
+    }
     private async Task HandleFieldValueChanged(FormField field, object value)
     {
         await UpdateFormValue(field, value);
@@ -525,7 +578,7 @@
             builder.CloseElement();
         };
     }
-    
+
     private void InitializeFormValues()
     {
         foreach (var field in FormDefinition.Fields)
@@ -673,7 +726,7 @@
             field.OriginalValue = FormValues[field.Name];
         }
     }
-    
+
     private async Task HandleNumberValueChanged(FormField field, ChangeEventArgs e)
     {
         if (decimal.TryParse(e.Value?.ToString(), out decimal decimalValue))
@@ -688,7 +741,7 @@
     {
         return value.ToString($"F{decimalPlaces}", System.Globalization.CultureInfo.InvariantCulture);
     }
-    
+
     private async Task UpdateFormValue(FormField field, object value)
     {
         FormValues[field.Name] = value;
@@ -767,7 +820,7 @@
         // Reset the current value when options change
         FormValues[targetField.Name] = null;
     }
-    
+
     private async Task HandleCascadingChange(FormField field, string value)
     {
         await UpdateFormValue(field, value);
@@ -823,5 +876,11 @@
             }
         }
         return dict;
-    }    
+    }
+
+    private bool HasImportMappings()
+    {
+        return FormDefinition?.ImportMappings?.Any(m =>
+            m.ColumnMappings?.Any(c => !string.IsNullOrEmpty(c.FieldId)) == true) ?? false;
+    }
 }

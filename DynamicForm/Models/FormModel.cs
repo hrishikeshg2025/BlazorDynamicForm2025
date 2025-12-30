@@ -69,6 +69,8 @@ public partial class FormDefinition
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; }
     public List<FormField> Fields { get; set; } = new();
+    public List<FileImportMapping> ImportMappings { get; set; } = new();
+    public string SelectedMappingId { get; set; } = string.Empty;
 }
 // Update FormDefinition to handle layout persistence
 public partial class FormDefinition

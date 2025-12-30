@@ -21,6 +21,9 @@
         <button @onclick="AddNewTable" class="btn btn-primary">
             <i class="fas fa-table"></i> Add Table
         </button>
+        <button @onclick="ShowImportMapping" class="btn btn-info">
+            <i class="fas fa-file-import"></i> Configure Import
+        </button>
         <button @onclick="TogglePreview" class="btn btn-secondary">
             <i class="fas fa-eye"></i> @(FormBuilderState.ShowPreview ? "Hide Preview" : "Show Preview")
         </button>
@@ -55,6 +58,11 @@
                         <InputText @bind-Value="FormBuilderState.CurrentForm.Name" class="form-control" />
                     </div>
 
+                    @if (showImportMappingEditor)
+                    {
+                        <FileMapping FormDefinition="FormBuilderState.CurrentForm" 
+                           OnMappingChanged="StateHasChanged" />                        
+                    }
                     <!-- Dynamic Tables Section -->
                     @if (FormBuilderState.CurrentForm.Layout?.Tables?.Any() == true)
                     {
@@ -104,7 +112,7 @@
                 </div>
             </div>
         </div>
-
+        
         @if (FormBuilderState.ShowPreview)
         {
             <div class="col-md-6">
@@ -146,6 +154,13 @@
 @code {
     [Parameter] public string Id { get; set; }
     [Inject] private INumberFormatService numberFormatService { get; set; }
+    private bool showImportMappingEditor = false;
+    private FileImportMapping currentImportMapping;
+
+    //private bool showImportMappingModal = false;
+    private FileImportMapping selectedImportMapping =  new();
+    private List<FileImportMapping> availableMappings = new();
+
     protected override async Task OnInitializedAsync()
     {
         FormBuilderState.OnChange += StateHasChanged;
@@ -171,6 +186,33 @@
         FormBuilderState.CurrentForm.InitializeDefaultLayout();
     }
 
+    private void ShowImportMapping()
+    {
+        showImportMappingEditor = true;
+        currentImportMapping = null; // Start fresh
+    }
+
+    private void HideImportMapping()
+    {
+        showImportMappingEditor = false;
+        currentImportMapping = null;
+    }
+    private async Task OnImportMappingSaved(FileImportMapping mapping)
+    {
+        showImportMappingEditor = false;
+        currentImportMapping = null;
+
+        // Show success message
+        Console.WriteLine($"Import mapping '{mapping.Name}' saved successfully!");
+
+        // You might want to refresh the mappings list if showing it elsewhere
+        StateHasChanged();
+    }
+    private async Task LoadImportMappings()
+    {
+        // Load existing mappings for this form
+        // need to inject IFileImportService
+    }
     private void AddNewField()
     {
         var newField = new FormField

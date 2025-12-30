@@ -6,4 +6,20 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="Services\FileImportService_old.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="Components\Pages\FileImportComponent_old.razor" />
+    <Content Remove="Components\Pages\FileMappingEditor.razor" />
+    <Content Remove="Components\Pages\FileMappingModal.razor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CsvHelper" Version="33.1.0" />
+    <PackageReference Include="MiniExcel" Version="1.42.0" />
+    <PackageReference Include="NPOI" Version="2.7.5" />
+  </ItemGroup>
+
 </Project>
